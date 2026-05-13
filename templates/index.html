@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚔️ Conquer Online Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080b16;
+      --surface:  #0f1322;
+      --card:     #141929;
+      --border:   #1e2540;
+      --accent:   #7c6dff;
+      --accent2:  #a598ff;
+      --green:    #00e5a0;
+      --red:      #ff4d6d;
+      --orange:   #ff9f43;
+      --yellow:   #ffd32a;
+      --text:     #e8eaf6;
+      --muted:    #5a6282;
+      --skill-bg: #1a2040;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; }
+
+    /* ── HEADER ─────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-icon { font-size: 28px; }
+    .logo-text h1 { font-size: 20px; font-weight: 800; color: var(--accent2); letter-spacing: .5px; }
+    .logo-text p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .status-badge {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 16px; border-radius: 100px;
+      background: var(--card); border: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      transition: all .3s;
+    }
+    .status-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); transition: background .3s;
+    }
+    .status-badge.active { color: var(--green); border-color: var(--green); }
+    .status-badge.active .dot { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.5s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── LAYOUT ─────────────────────────────────────────────────────── */
+    main { display: grid; grid-template-columns: 360px 1fr; gap: 20px; padding: 24px 32px; max-width: 1200px; }
+
+    /* ── CARDS ──────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .card-header {
+      background: var(--surface); padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 700; letter-spacing: .5px; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-body { padding: 18px; }
+
+    /* ── MAIN BUTTON ────────────────────────────────────────────────── */
+    #btn-bot {
+      width: 100%; padding: 14px;
+      border: none; border-radius: 12px; cursor: pointer;
+      font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 700;
+      background: linear-gradient(135deg, var(--green), #00b37a);
+      color: #050c12; transition: all .25s; letter-spacing: .5px;
+      box-shadow: 0 4px 20px rgba(0,229,160,.2);
+    }
+    #btn-bot:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(0,229,160,.35); }
+    #btn-bot.stop {
+      background: linear-gradient(135deg, var(--red), #cc3055);
+      color: #fff; box-shadow: 0 4px 20px rgba(255,77,109,.25);
+    }
+    #btn-bot.stop:hover { box-shadow: 0 6px 24px rgba(255,77,109,.4); }
+
+    /* ── TOGGLE ROWS ─────────────────────────────────────────────────── */
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .toggle-row:last-of-type { border-bottom: none; }
+    .toggle-label { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; }
+    .toggle-label .icon { font-size: 18px; }
+
+    /* Switch */
+    .switch { position: relative; width: 52px; height: 27px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; border-radius: 27px; cursor: pointer;
+      background: var(--border); transition: .3s;
+    }
+    .slider::before {
+      content: ""; position: absolute;
+      width: 21px; height: 21px; border-radius: 50%;
+      left: 3px; top: 3px; background: #fff; transition: .3s;
+    }
+    input:checked + .slider { background: var(--green); box-shadow: 0 0 12px rgba(0,229,160,.4); }
+    input:checked + .slider::before { transform: translateX(25px); }
+
+    /* ── INTERVAL INPUT ──────────────────────────────────────────────── */
+    .interval-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .interval-row label { font-size: 12px; color: var(--muted); flex: 1; }
+    .interval-row input {
+      width: 64px; padding: 5px 8px; border-radius: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      text-align: center; outline: none;
+    }
+    .interval-row input:focus { border-color: var(--accent); }
+    .interval-row span { font-size: 11px; color: var(--muted); }
+
+    /* ── SKILL BUTTONS ───────────────────────────────────────────────── */
+    .skill-list { display: flex; flex-direction: column; gap: 8px; }
+    .skill-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--skill-bg); border-radius: 10px; padding: 8px 12px;
+      border: 1px solid var(--border); transition: border-color .2s;
+    }
+    .skill-item:hover { border-color: var(--accent); }
+    .skill-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .skill-key {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700;
+      background: var(--accent); color: #fff; padding: 3px 8px; border-radius: 6px; letter-spacing: .5px;
+    }
+    .btn-use {
+      padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--card); color: var(--muted); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all .2s; font-family: 'Inter', sans-serif;
+    }
+    .btn-use:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── STATS ───────────────────────────────────────────────────────── */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; text-align: center;
+    }
+    .stat-value { font-size: 26px; font-weight: 800; margin-bottom: 4px; }
+    .stat-label { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .color-yellow { color: var(--yellow); }
+    .color-accent { color: var(--accent2); }
+    .color-green  { color: var(--green);  }
+
+    /* ── LOG ─────────────────────────────────────────────────────────── */
+    #log-container {
+      height: 380px; overflow-y: auto; background: var(--bg);
+      border-radius: 10px; padding: 12px; border: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.8;
+      scroll-behavior: smooth;
+    }
+    #log-container::-webkit-scrollbar { width: 4px; }
+    #log-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .log-INFO    { color: #8892b0; }
+    .log-SUCCESS { color: var(--green); }
+    .log-WARNING { color: var(--orange); }
+    .log-ERROR   { color: var(--red); }
+
+    .log-controls { display: flex; justify-content: flex-end; margin-top: 8px; }
+    .btn-clear {
+      padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: 12px;
+      cursor: pointer; transition: all .2s; font-family: 'Inter', sans-serif;
+    }
+    .btn-clear:hover { color: var(--red); border-color: var(--red); }
+
+    /* ── HOTKEY PILLS ────────────────────────────────────────────────── */
+    .hotkeys { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .hk-pill {
+      display: flex; align-items: center; gap: 5px;
+      background: var(--skill-bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px 10px; font-size: 11px;
+    }
+    .hk-key { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent2); }
+    .hk-desc { color: var(--muted); }
+
+    /* ── FOOTER ──────────────────────────────────────────────────────── */
+    footer {
+      text-align: center; padding: 12px;
+      font-size: 11px; color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── ANIMATIONS ──────────────────────────────────────────────────── */
+    .card { animation: fadeIn .4s ease forwards; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚔️</span>
+    <div class="logo-text">
+      <h1>CONQUER ONLINE BOT</h1>
+      <p>Scatter Arquero · Auto Pick · Panel de Control</p>
+    </div>
+  </div>
+  <div class="status-badge" id="status-badge">
+    <div class="dot"></div>
+    <span id="status-text">INACTIVO</span>
+  </div>
+</header>
+
+<main>
+  <!-- ── COLUMNA IZQUIERDA ─────────────────────────────────────────── -->
+  <div>
+
+    <!-- Control Principal -->
+    <div class="card">
+      <div class="card-header">🎮 Control Principal</div>
+      <div class="card-body">
+        <button id="btn-bot" onclick="toggleBot()">▶ &nbsp;INICIAR BOT</button>
+
+        <div style="margin-top:20px;">
+          <div class="toggle-row">
+            <div class="toggle-label">
+              <span class="icon">🏹</span> Solo Scatter (Arquero)
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="chk-archer-scatter" onchange="toggleArcherScatter(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin:6px 0 12px 4px;">
+            Auto Skill pulsa solo la tecla de Scatter. Desactivá para rotar todas las skills de la lista.
+          </div>
+          <!-- Auto Skill -->
+          <div class="toggle-row">
+            <div class="toggle-label">
+              <span class="icon">⚔️</span> Auto Skill
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="chk-skill" onchange="toggleSkill(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="interval-row">
+            <label id="skill-interval-label">Intervalo Scatter</label>
+            <input type="number" id="skill-interval" value="1.0" min="0.1" step="0.1" onchange="updateConfig()" />
+            <span>seg</span>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <!-- Auto Pick -->
+          <div class="toggle-row">
+            <div class="toggle-label">
+              <span class="icon">🎒</span> Auto Pick
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="chk-pick" onchange="togglePick(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="interval-row">
+            <label>Intervalo entre picks</label>
+            <input type="number" id="pick-interval" value="0.5" min="0.1" step="0.1" onchange="updateConfig()" />
+            <span>seg</span>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <!-- Vision -->
+          <div class="toggle-row">
+            <div class="toggle-label">
+              <span class="icon">👁️</span> Visión (OpenCV)
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="chk-vision" onchange="toggleVision(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:4px;">
+            Detecta ítems por color y enemigos por barra HP
+          </div>
+        </div>
+
+        <!-- Hotkeys -->
+        <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border);">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;">HOTKEYS GLOBALES</div>
+          <div class="hotkeys">
+            <div class="hk-pill"><span class="hk-key">F9</span><span class="hk-desc">Bot ON/OFF</span></div>
+            <div class="hk-pill"><span class="hk-key">F10</span><span class="hk-desc">Skill</span></div>
+            <div class="hk-pill"><span class="hk-key">F11</span><span class="hk-desc">Pick</span></div>
+            <div class="hk-pill"><span class="hk-key">F12</span><span class="hk-desc">Emergencia</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Habilidades -->
+    <div class="card">
+      <div class="card-header">⚡ Habilidades Configuradas</div>
+      <div class="card-body">
+        <div class="skill-list" id="skill-list">
+          {% for name, key in skill_keys.items() %}
+          <div class="skill-item">
+            <span class="skill-name">{{ name.replace('_',' ').title() }}</span>
+            <span class="skill-key">{{ key.upper() }}</span>
+            <button class="btn-use" onclick="useSkill('{{ name }}')">Usar ahora</button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── COLUMNA DERECHA ───────────────────────────────────────────── -->
+  <div>
+
+    <!-- Estadísticas -->
+    <div class="card">
+      <div class="card-header" style="justify-content:space-between;">
+        📊 Estadísticas de Sesión
+        <button class="btn-clear" onclick="resetStats()">Resetear</button>
+      </div>
+      <div class="card-body">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value color-yellow" id="stat-time">00:00:00</div>
+            <div class="stat-label">⏱ Tiempo de sesión</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value color-accent" id="stat-skills">0</div>
+            <div class="stat-label">⚔️ Skills usadas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value color-green" id="stat-picks">0</div>
+            <div class="stat-label">🎒 Ítems recogidos</div>
+          </div>
+        </div>
+
+        <!-- Barras HP/MP -->
+        <div style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
+            <span>❤️ HP</span><span id="hp-text">---</span>
+          </div>
+          <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin-bottom:8px;">
+            <div id="hp-bar" style="height:100%;width:100%;background:var(--red);border-radius:6px;transition:width .5s;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
+            <span>🔵 MP</span><span id="mp-text">---</span>
+          </div>
+          <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden;">
+            <div id="mp-bar" style="height:100%;width:100%;background:var(--accent);border-radius:6px;transition:width .5s;"></div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>👁️ Ítems visibles en pantalla</span>
+          <span class="color-green" id="stat-detected">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="card-header">📋 Log de Actividad</div>
+      <div class="card-body" style="padding-bottom:10px;">
+        <div id="log-container"></div>
+        <div class="log-controls">
+          <button class="btn-clear" onclick="clearLog()">Limpiar log</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>⚠️ Solo para uso educativo · Conquer Online Bot · Arquero Scatter + Auto Pick</footer>
+
+<script>
+  const socket = io();
+  let botRunning = false;
+
+  // ── Socket eventos ─────────────────────────────────────────────────
+  socket.on('connect',    ()    => addLog('🔗 Conectado al servidor', 'SUCCESS'));
+  socket.on('disconnect', ()    => addLog('❌ Desconectado del servidor', 'ERROR'));
+  socket.on('connect_error', (err) => addLog('❌ Error de conexión WebSocket: ' + (err && err.message ? err.message : String(err)), 'ERROR'));
+  socket.on('log',   data       => addLog(data.msg, data.level));
+  socket.on('stats', data       => updateStats(data));
+  socket.on('state', data       => applyState(data));
+
+  function applyState(data) {
+    try {
+    if (data.running !== undefined) {
+      botRunning = data.running;
+      const btn  = document.getElementById('btn-bot');
+      const badge = document.getElementById('status-badge');
+      const stext = document.getElementById('status-text');
+      if (btn && badge && stext) {
+        if (botRunning) {
+          btn.textContent = '⏹  DETENER BOT'; btn.classList.add('stop');
+          badge.classList.add('active'); stext.textContent = 'ACTIVO';
+        } else {
+          btn.textContent = '▶  INICIAR BOT'; btn.classList.remove('stop');
+          badge.classList.remove('active'); stext.textContent = 'INACTIVO';
+        }
+      }
+    }
+    if (data.auto_skill !== undefined) {
+      const el = document.getElementById('chk-skill');
+      if (el) el.checked = data.auto_skill;
+    }
+    if (data.auto_pick !== undefined) {
+      const el = document.getElementById('chk-pick');
+      if (el) el.checked = data.auto_pick;
+    }
+    if (data.vision !== undefined) {
+      const el = document.getElementById('chk-vision');
+      if (el) el.checked = data.vision;
+    }
+    if (data.skill_interval !== undefined) {
+      const el = document.getElementById('skill-interval');
+      if (el) el.value = data.skill_interval;
+    }
+    if (data.pick_interval !== undefined) {
+      const el = document.getElementById('pick-interval');
+      if (el) el.value = data.pick_interval;
+    }
+    if (data.archer_scatter_only !== undefined) {
+      const el = document.getElementById('chk-archer-scatter');
+      if (el) el.checked = data.archer_scatter_only;
+      const lbl = document.getElementById('skill-interval-label');
+      if (lbl) {
+        lbl.textContent = data.archer_scatter_only
+          ? 'Intervalo Scatter'
+          : 'Intervalo entre skills';
+      }
+    }
+    } catch (e) {
+      console.error('applyState', e);
+    }
+  }
+
+  function toggleArcherScatter(enabled) {
+    socket.emit('toggle_archer_scatter', { enabled });
+    const lbl = document.getElementById('skill-interval-label');
+    if (lbl) {
+      lbl.textContent = enabled ? 'Intervalo Scatter' : 'Intervalo entre skills';
+    }
+  }
+
+  // ── Controles ──────────────────────────────────────────────────────
+  function toggleBot() {
+    if (!socket.connected) {
+      addLog('❌ Sin conexión al servidor. ¿Hay otro `main.py` usando el puerto? Recargá o usá PORT=5174.', 'ERROR');
+      return;
+    }
+    const next = !botRunning;
+    addLog(next ? '▶ Iniciando bot…' : '🛑 Deteniendo bot…', 'INFO');
+    socket.emit('toggle_bot', { running: next });
+  }
+  function toggleSkill(enabled) {
+    socket.emit('toggle_skill', {
+      enabled,
+      interval: parseFloat(document.getElementById('skill-interval').value)
+    });
+  }
+  function togglePick(enabled) {
+    socket.emit('toggle_pick', {
+      enabled,
+      interval: parseFloat(document.getElementById('pick-interval').value)
+    });
+  }
+  function useSkill(name) {
+    socket.emit('use_skill', { name });
+    addLog(`⚔️ Usando habilidad: ${name}`, 'INFO');
+  }
+  function resetStats() {
+    socket.emit('reset_stats');
+  }
+  function updateConfig() {
+    socket.emit('update_config', {
+      skill_interval: parseFloat(document.getElementById('skill-interval').value),
+      pick_interval:  parseFloat(document.getElementById('pick-interval').value),
+    });
+  }
+
+  // ── Log ────────────────────────────────────────────────────────────
+  function addLog(msg, level = 'INFO') {
+    const box = document.getElementById('log-container');
+    const line = document.createElement('div');
+    line.className = `log-${level}`;
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+    // Límite de 300 líneas
+    while (box.children.length > 300) box.removeChild(box.firstChild);
+  }
+  function clearLog() {
+    document.getElementById('log-container').innerHTML = '';
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────
+  function toggleVision(enabled) {
+    socket.emit('toggle_vision', { enabled });
+  }
+
+  function updateStats(data) {
+    if (data.session_time !== undefined)
+      document.getElementById('stat-time').textContent = data.session_time;
+    if (data.skills_used !== undefined)
+      document.getElementById('stat-skills').textContent = data.skills_used;
+    if (data.items_picked !== undefined)
+      document.getElementById('stat-picks').textContent = data.items_picked;
+    if (data.items_detected !== undefined)
+      document.getElementById('stat-detected').textContent = data.items_detected;
+    if (data.hp_percent !== undefined) {
+      const hp = data.hp_percent;
+      document.getElementById('hp-bar').style.width  = hp + '%';
+      document.getElementById('hp-text').textContent = hp.toFixed(0) + '%';
+      document.getElementById('hp-bar').style.background =
+        hp > 60 ? 'var(--green)' : hp > 30 ? 'var(--orange)' : 'var(--red)';
+    }
+    if (data.mp_percent !== undefined) {
+      const mp = data.mp_percent;
+      document.getElementById('mp-bar').style.width  = mp + '%';
+      document.getElementById('mp-text').textContent = mp.toFixed(0) + '%';
+    }
+  }
+</script>
+</body>
+</html>

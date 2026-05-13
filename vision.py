@@ -1,0 +1,367 @@
+"""
+vision.py
+Módulo de visión para el bot de Conquer Online.
+Usa OpenCV para capturar la pantalla y detectar:
+  - Ítems en el suelo (por color HSV del texto flotante)
+  - Enemigos (por barra de HP roja sobre sus cabezas)
+  - HP/MP propios (leyendo la barra de vida fija en la UI)
+  - Template matching para sprites específicos
+"""
+
+import time
+import threading
+import numpy as np
+import cv2
+import pyautogui
+from dataclasses import dataclass, field
+from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ── Tipos de datos ─────────────────────────────────────────────────────────────
+@dataclass
+class DetectedObject:
+    x: int
+    y: int
+    w: int
+    h: int
+    label: str = ""
+    confidence: float = 1.0
+
+    @property
+    def center(self):
+        return (self.x + self.w // 2, self.y + self.h // 2)
+
+
+@dataclass
+class GameState:
+    """Estado completo del juego leído desde la pantalla."""
+    hp_percent: float      = 100.0   # 0-100
+    mp_percent: float      = 100.0   # 0-100
+    items_on_ground: list  = field(default_factory=list)   # [DetectedObject]
+    enemies_nearby: list   = field(default_factory=list)   # [DetectedObject]
+    player_moving: bool    = False
+    last_update: float     = 0.0
+
+
+# ── Rangos HSV de colores de ítems en CO ──────────────────────────────────────
+# Ajustá estos valores según los colores exactos de TU servidor privado.
+# Usá el script calibrate_colors.py para encontrar los valores correctos.
+ITEM_COLOR_RANGES = {
+    "common":    {"lower": np.array([0,   0,  180]),  "upper": np.array([180,  30, 255])},  # Blanco
+    "uncommon":  {"lower": np.array([40,  80,  80]),  "upper": np.array([80,  255, 255])},  # Verde
+    "rare":      {"lower": np.array([100, 80,  80]),  "upper": np.array([130, 255, 255])},  # Azul
+    "epic":      {"lower": np.array([130, 80,  80]),  "upper": np.array([160, 255, 255])},  # Morado
+    "legendary": {"lower": np.array([10,  150, 150]), "upper": np.array([25,  255, 255])},  # Naranja
+}
+
+# Rareza mínima a recoger (todo lo que sea >= a esta)
+RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary"]
+
+
+class VisionEngine:
+    """
+    Motor de visión por computadora para Conquer Online.
+    Corre en un hilo separado, actualizando GameState continuamente.
+    """
+
+    def __init__(self, capture_interval: float = 0.15):
+        self.capture_interval = capture_interval
+        self.state = GameState()
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+
+        # Región de la ventana del juego (None = pantalla completa)
+        # Formato: (left, top, width, height)
+        # Ejemplo: (0, 0, 1024, 768) si el juego corre en esa resolución
+        self.game_region: Optional[tuple] = None
+
+        # Posiciones de las barras de HP/MP en tu resolución
+        # Ajustar con calibrate_colors.py
+        # Formato: (x_inicio, y, ancho_total, alto)
+        self.hp_bar_region = (10, 10, 150, 14)   # Ejemplo — calibrar
+        self.mp_bar_region = (10, 28, 150, 14)   # Ejemplo — calibrar
+
+        # Color de la barra de HP llena (rojo) y MP (azul) en BGR
+        self.hp_color_bgr = (0, 0, 200)
+        self.mp_color_bgr = (200, 0, 0)
+
+        # Templates cargados (nombre → imagen numpy)
+        self._templates: dict = {}
+
+        # Rareza mínima a detectar
+        self.min_rarity = "uncommon"
+
+        # Callbacks
+        self.on_state_update = None   # fn(GameState)
+        self.on_item_found   = None   # fn(DetectedObject)
+        self.on_low_hp       = None   # fn(float)
+        self.hp_alert_threshold = 50  # % de HP para alertar
+
+    # ── API pública ────────────────────────────────────────────────────────────
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="VisionThread")
+        self._thread.start()
+        logger.info("👁  Vision engine iniciado")
+
+    def stop(self):
+        self._running = False
+        logger.info("👁  Vision engine detenido")
+
+    def get_state(self) -> GameState:
+        with self._lock:
+            return GameState(
+                hp_percent      = self.state.hp_percent,
+                mp_percent      = self.state.mp_percent,
+                items_on_ground = list(self.state.items_on_ground),
+                enemies_nearby  = list(self.state.enemies_nearby),
+                player_moving   = self.state.player_moving,
+                last_update     = self.state.last_update,
+            )
+
+    def load_template(self, name: str, path: str):
+        """Carga un template PNG para usar con matchTemplate."""
+        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        if img is not None:
+            self._templates[name] = img
+            logger.info(f"👁  Template '{name}' cargado desde {path}")
+        else:
+            logger.warning(f"👁  No se pudo cargar template: {path}")
+
+    def set_game_region(self, left: int, top: int, width: int, height: int):
+        """Define el área de captura (útil si el juego corre en ventana)."""
+        self.game_region = (left, top, width, height)
+
+    # ── Loop de captura ────────────────────────────────────────────────────────
+    def _loop(self):
+        prev_hp = 100.0
+        while self._running:
+            try:
+                t0 = time.time()
+                frame = self._capture()
+
+                if frame is not None:
+                    items   = self._detect_items(frame)
+                    enemies = self._detect_enemies(frame)
+                    hp, mp  = self._read_hp_mp(frame)
+
+                    with self._lock:
+                        self.state.items_on_ground = items
+                        self.state.enemies_nearby  = enemies
+                        self.state.hp_percent      = hp
+                        self.state.mp_percent      = mp
+                        self.state.last_update     = time.time()
+
+                    # Callbacks
+                    if items and self.on_item_found:
+                        self.on_item_found(items[0])   # primer ítem detectado
+
+                    if hp < self.hp_alert_threshold and prev_hp >= self.hp_alert_threshold:
+                        if self.on_low_hp:
+                            self.on_low_hp(hp)
+
+                    if self.on_state_update:
+                        self.on_state_update(self.get_state())
+
+                    prev_hp = hp
+
+                elapsed = time.time() - t0
+                sleep_time = max(0, self.capture_interval - elapsed)
+                time.sleep(sleep_time)
+
+            except Exception as e:
+                logger.error(f"Vision loop error: {e}")
+                time.sleep(0.5)
+
+    # ── Captura de pantalla ────────────────────────────────────────────────────
+    def _capture(self) -> Optional[np.ndarray]:
+        """Captura la pantalla (o región del juego) como array numpy BGR."""
+        try:
+            if self.game_region:
+                l, t, w, h = self.game_region
+                screenshot = pyautogui.screenshot(region=(l, t, w, h))
+            else:
+                screenshot = pyautogui.screenshot()
+
+            # PIL → numpy BGR (OpenCV)
+            frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+            return frame
+        except Exception as e:
+            logger.error(f"Error capturando pantalla: {e}")
+            return None
+
+    # ── Detección de ítems ─────────────────────────────────────────────────────
+    def _detect_items(self, frame: np.ndarray) -> list:
+        """
+        Detecta ítems en el suelo buscando textos de color flotante.
+        Conquer Online muestra el nombre del ítem con un color según rareza.
+        """
+        items = []
+        frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Determinar rareza mínima a recoger
+        min_idx = RARITY_ORDER.index(self.min_rarity)
+        rarities_to_check = RARITY_ORDER[min_idx:]
+
+        for rarity in rarities_to_check:
+            ranges = ITEM_COLOR_RANGES[rarity]
+            mask = cv2.inRange(frame_hsv, ranges["lower"], ranges["upper"])
+
+            # Morfología para limpiar ruido
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if 20 < area < 2000:   # Filtrar ruido y objetos grandes
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    # Los textos de ítems suelen ser más anchos que altos
+                    aspect_ratio = w / max(h, 1)
+                    if aspect_ratio > 1.5:
+                        items.append(DetectedObject(x=x, y=y, w=w, h=h, label=rarity))
+
+        # Ordenar por rareza (épicos primero)
+        items.sort(key=lambda i: RARITY_ORDER.index(i.label), reverse=True)
+        return items
+
+    # ── Detección de enemigos ──────────────────────────────────────────────────
+    def _detect_enemies(self, frame: np.ndarray) -> list:
+        """
+        Detecta enemigos buscando barras de HP rojas sobre sus sprites.
+        En CO los mobs tienen una barra roja pequeña sobre la cabeza.
+        """
+        enemies = []
+        frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Rango de rojo en HSV (dos rangos porque el rojo rodea 0°/180°)
+        lower_red1 = np.array([0,   120, 100])
+        upper_red1 = np.array([10,  255, 255])
+        lower_red2 = np.array([170, 120, 100])
+        upper_red2 = np.array([180, 255, 255])
+
+        mask1 = cv2.inRange(frame_hsv, lower_red1, upper_red1)
+        mask2 = cv2.inRange(frame_hsv, lower_red2, upper_red2)
+        mask  = cv2.bitwise_or(mask1, mask2)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 2))
+        mask   = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  kernel)
+        mask   = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            # Las barras de HP de mobs son rectangulares y delgadas
+            if 30 < area < 500:
+                x, y, w, h = cv2.boundingRect(cnt)
+                aspect_ratio = w / max(h, 1)
+                if aspect_ratio > 3:   # Muy ancho y delgado → barra de HP
+                    # El cuerpo del mob está debajo de la barra
+                    enemy_y = y + 20
+                    enemies.append(DetectedObject(x=x, y=enemy_y, w=w, h=40, label="enemy"))
+
+        return enemies
+
+    # ── Lectura de HP/MP ───────────────────────────────────────────────────────
+    def _read_hp_mp(self, frame: np.ndarray) -> tuple:
+        """
+        Lee el porcentaje de HP y MP del jugador.
+        Analiza la región fija de la UI donde están las barras.
+
+        IMPORTANTE: Debes calibrar hp_bar_region y mp_bar_region
+        con calibrate_colors.py para tu resolución.
+        """
+        hp_pct = self._read_bar(frame, self.hp_bar_region, self.hp_color_bgr)
+        mp_pct = self._read_bar(frame, self.mp_bar_region, self.mp_color_bgr)
+        return hp_pct, mp_pct
+
+    def _read_bar(self, frame: np.ndarray, region: tuple, target_color_bgr: tuple) -> float:
+        """
+        Lee el porcentaje de llenado de una barra de color.
+        Cuenta cuántos pixels del color de la barra hay vs el ancho total.
+        """
+        x, y, w, h = region
+        bar_roi = frame[y:y+h, x:x+w]
+
+        if bar_roi.size == 0:
+            return 100.0
+
+        # Crear máscara del color de la barra con tolerancia
+        lower = np.array([max(0, c - 50) for c in target_color_bgr], dtype=np.uint8)
+        upper = np.array([min(255, c + 50) for c in target_color_bgr], dtype=np.uint8)
+        mask  = cv2.inRange(bar_roi, lower, upper)
+
+        filled_pixels = cv2.countNonZero(mask)
+        total_pixels  = w * h
+        pct = (filled_pixels / total_pixels) * 100 if total_pixels > 0 else 100.0
+        return round(min(100.0, max(0.0, pct)), 1)
+
+    # ── Template Matching ──────────────────────────────────────────────────────
+    def find_template(self, frame: np.ndarray, template_name: str,
+                      threshold: float = 0.80) -> Optional[DetectedObject]:
+        """
+        Busca un template previamente cargado en el frame actual.
+        Retorna la mejor coincidencia o None si no supera el threshold.
+
+        Uso:
+            vision.load_template("healer_mob", "templates/healer.png")
+            obj = vision.find_template(frame, "healer_mob", threshold=0.82)
+        """
+        tmpl = self._templates.get(template_name)
+        if tmpl is None:
+            logger.warning(f"Template '{template_name}' no cargado")
+            return None
+
+        th, tw = tmpl.shape[:2]
+        result = cv2.matchTemplate(frame, tmpl, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+        if max_val >= threshold:
+            x, y = max_loc
+            return DetectedObject(x=x, y=y, w=tw, h=th,
+                                  label=template_name, confidence=max_val)
+        return None
+
+    # ── Debug: guardar frame anotado ───────────────────────────────────────────
+    def save_debug_frame(self, path: str = "debug_frame.png"):
+        """
+        Guarda un screenshot con los objetos detectados marcados.
+        Útil para verificar que la detección funciona correctamente.
+        """
+        frame = self._capture()
+        if frame is None:
+            return
+
+        state = self.get_state()
+
+        # Dibujar ítems (verde)
+        for item in state.items_on_ground:
+            cv2.rectangle(frame, (item.x, item.y),
+                          (item.x + item.w, item.y + item.h), (0, 255, 0), 2)
+            cv2.putText(frame, item.label, (item.x, item.y - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+        # Dibujar enemigos (rojo)
+        for enemy in state.enemies_nearby:
+            cv2.rectangle(frame, (enemy.x, enemy.y),
+                          (enemy.x + enemy.w, enemy.y + enemy.h), (0, 0, 255), 2)
+            cv2.putText(frame, "MOB", (enemy.x, enemy.y - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+        # Dibujar HUD
+        cv2.putText(frame, f"HP: {state.hp_percent:.0f}%",
+                    (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 100), 2)
+        cv2.putText(frame, f"MP: {state.mp_percent:.0f}%",
+                    (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 2)
+
+        cv2.imwrite(path, frame)
+        logger.info(f"👁  Debug frame guardado en {path}")
+        return path
