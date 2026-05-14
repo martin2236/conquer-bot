@@ -194,26 +194,43 @@ class BotEngine:
             return True
 
         now = time.time()
-        if now - self._last_focus_attempt < 1.0:
+        # Solo acelerar si ya tenemos ventana resuelta (evita True falso tras "no hay ventana").
+        if self._game_window is not None and now - self._last_focus_attempt < 1.0:
             return True
-        self._last_focus_attempt = now
 
         try:
             matches = pyautogui.getWindowsWithTitle(title)
             if not matches:
                 self.log(f"No encuentro una ventana con titulo que contenga '{title}'", "WARNING")
+                self._game_window = None
+                self._last_focus_attempt = time.time()
                 return False
 
             window = matches[0]
             self._game_window = window
             if getattr(window, "isMinimized", False):
-                window.restore()
-                time.sleep(0.1)
-            window.activate()
+                try:
+                    window.restore()
+                    time.sleep(0.1)
+                except Exception as e:
+                    self.log(f"Aviso al restaurar ventana del juego: {e}", "WARNING")
+
+            try:
+                window.activate()
+            except Exception as e:
+                err = str(e).lower()
+                # PyGetWindowWin a veces lanza con "Error code from Windows: 0" aunque activó bien.
+                if "error code from windows: 0" not in err:
+                    self.log(f"No se pudo activar la ventana del juego: {e}", "WARNING")
+                    self._last_focus_attempt = time.time()
+                    return False
+
+            self._last_focus_attempt = time.time()
             time.sleep(0.05)
             return True
         except Exception as e:
-            self.log(f"No pude enfocar la ventana del juego: {e}", "WARNING")
+            self.log(f"No pude preparar la ventana del juego: {e}", "WARNING")
+            self._last_focus_attempt = time.time()
             return False
 
     def _mouse_inside_game_window(self) -> bool:
