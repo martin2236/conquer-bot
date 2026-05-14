@@ -1,7 +1,9 @@
+flask==3.0.3
+flask-socketio==5.3.6
 pyautogui==0.9.54
-opencv-python==4.9.0.80
-Pillow==10.3.0
-numpy==1.26.4
+opencv-python==4.11.0.86
+Pillow==11.2.1
+numpy==2.2.5
 keyboard==0.13.5
 pynput==1.7.6
 psutil==5.9.8

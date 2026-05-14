@@ -7,6 +7,10 @@
 # Poné la misma tecla que usás en la barra del juego para Scatter.
 ARCHER_SCATTER_ONLY = True
 SCATTER_KEY = "1"
+SCATTER_PRESS_KEY = False  # True si queres que el bot seleccione la skill antes de clickear
+SCATTER_CLICK_PATTERN = ("left", "right")  # mover, castear, repetir
+SCATTER_CLICK_DELAY = 0.08
+SCATTER_REQUIRE_MOUSE_INSIDE_GAME = True
 
 # Solo lanzar Scatter si hay al menos N enemigos detectados (barras rojas).
 # 0 = siempre lanzar (recomendado si no usás visión o el PS tiene UI distinta).
@@ -50,13 +54,14 @@ ITEM_COLORS = {
 MIN_RARITY_TO_PICK = "common"  # "common", "uncommon", "rare", "epic", "legendary"
 
 # --- Configuración de ventana del juego ---
-GAME_WINDOW_TITLE = "Conquer Online"  # Título exacto de la ventana
+GAME_WINDOW_TITLE = "ClassicConquer"  # Texto que debe aparecer en el titulo de la ventana
 
 # --- Hotkeys globales del bot ---
 HOTKEY_TOGGLE_BOT    = "F9"   # Activar/desactivar bot completo
 HOTKEY_TOGGLE_SKILL  = "F10"  # Activar/desactivar auto skill
 HOTKEY_TOGGLE_PICK   = "F11"  # Activar/desactivar auto pick
 HOTKEY_EMERGENCY_OFF = "F12"  # Apagado de emergencia
+MOUSE_TOGGLE_BOT_BUTTON = "x1"  # "x1", "x2" o "" para desactivar
 
 # --- Seguridad ---
 # Pausa aleatoria para parecer más humano (segundos)

@@ -64,9 +64,13 @@ class BotEngine:
         self._pick_thread  = None
         self._stats_thread = None
         self._lock = threading.Lock()
+        self._last_focus_attempt = 0.0
+        self._last_mouse_warning = 0.0
+        self._game_window = None
 
         # Índice de habilidad actual (rotación; ignorado si ARCHER_SCATTER_ONLY)
         self._skill_index = 0
+        self._scatter_click_index = 0
         self._skill_keys  = list(config.SKILL_KEYS.values())
 
         # Motor de visión
@@ -179,6 +183,80 @@ class BotEngine:
         )
         self._stats_thread.start()
 
+    def _emit_stats(self):
+        if self.on_stats_update:
+            self.on_stats_update(self.get_stats())
+
+    def _focus_game_window(self) -> bool:
+        """Intenta enfocar la ventana del juego antes de mandar teclas."""
+        title = getattr(config, "GAME_WINDOW_TITLE", "").strip()
+        if not title:
+            return True
+
+        now = time.time()
+        if now - self._last_focus_attempt < 1.0:
+            return True
+        self._last_focus_attempt = now
+
+        try:
+            matches = pyautogui.getWindowsWithTitle(title)
+            if not matches:
+                self.log(f"No encuentro una ventana con titulo que contenga '{title}'", "WARNING")
+                return False
+
+            window = matches[0]
+            self._game_window = window
+            if getattr(window, "isMinimized", False):
+                window.restore()
+                time.sleep(0.1)
+            window.activate()
+            time.sleep(0.05)
+            return True
+        except Exception as e:
+            self.log(f"No pude enfocar la ventana del juego: {e}", "WARNING")
+            return False
+
+    def _mouse_inside_game_window(self) -> bool:
+        if not getattr(config, "SCATTER_REQUIRE_MOUSE_INSIDE_GAME", True):
+            return True
+        if not self._game_window:
+            return True
+
+        x, y = pyautogui.position()
+        inside_x = self._game_window.left <= x <= self._game_window.left + self._game_window.width
+        inside_y = self._game_window.top <= y <= self._game_window.top + self._game_window.height
+        if inside_x and inside_y:
+            return True
+
+        now = time.time()
+        if now - self._last_mouse_warning > 3:
+            self._last_mouse_warning = now
+            self.log("Puntero fuera de la ventana del juego; no hago click.", "WARNING")
+        return False
+
+    def _perform_scatter_action(self) -> str | None:
+        key = self._scatter_key()
+        if key and getattr(config, "SCATTER_PRESS_KEY", False):
+            keyboard.press_and_release(key)
+
+        delay = float(getattr(config, "SCATTER_CLICK_DELAY", 0.08) or 0)
+        if delay > 0:
+            time.sleep(delay)
+
+        pattern = tuple(getattr(config, "SCATTER_CLICK_PATTERN", ("right",)) or ("right",))
+        button = pattern[self._scatter_click_index % len(pattern)]
+        self._scatter_click_index += 1
+
+        if button not in {"left", "right", "middle"}:
+            self.log(f"Boton de mouse no valido en SCATTER_CLICK_PATTERN: {button}", "WARNING")
+            return None
+
+        if not self._mouse_inside_game_window():
+            return None
+
+        pyautogui.click(button=button)
+        return button
+
     # ------------------------------------------------------------------
     # Bucle de habilidades
     # ------------------------------------------------------------------
@@ -229,15 +307,17 @@ class BotEngine:
         self.log("⚔️  Hilo de skills / Scatter detenido")
 
     def _use_scatter(self):
-        key = self._scatter_key()
-        keyboard.press_and_release(key)
+        if not self._focus_game_window():
+            return
+        button = self._perform_scatter_action()
+        if button != "right":
+            return
         with self._lock:
             self.stats["skills_used"] += 1
             count = self.stats["skills_used"]
         if count % 10 == 0:
-            self.log(f"🏹 Scatter lanzado (×{count}) — tecla {key}")
-        if self.on_stats_update:
-            self.on_stats_update(self.stats.copy())
+            self.log(f"🏹 Scatter lanzado (×{count})")
+        self._emit_stats()
 
     def _use_next_skill(self):
         """Usa la siguiente habilidad en rotación."""
@@ -248,6 +328,8 @@ class BotEngine:
             key = self._skill_keys[self._skill_index % len(self._skill_keys)]
             self._skill_index += 1
 
+        if not self._focus_game_window():
+            return
         keyboard.press_and_release(key)
         with self._lock:
             self.stats["skills_used"] += 1
@@ -256,8 +338,7 @@ class BotEngine:
         if count % 10 == 0:
             self.log(f"⚔️  Habilidades usadas: {count}")
 
-        if self.on_stats_update:
-            self.on_stats_update(self.stats.copy())
+        self._emit_stats()
 
     def use_specific_skill(self, skill_name: str):
         """Usa una habilidad específica por nombre."""
@@ -266,7 +347,12 @@ class BotEngine:
         else:
             key = config.SKILL_KEYS.get(skill_name)
         if key:
-            keyboard.press_and_release(key)
+            if not self._focus_game_window():
+                return
+            if skill_name == "scatter":
+                self._perform_scatter_action()
+            else:
+                keyboard.press_and_release(key)
             self.log(f"⚔️  Usando {skill_name} ({key})")
         else:
             self.log(f"Habilidad '{skill_name}' no encontrada", "WARNING")
@@ -307,6 +393,8 @@ class BotEngine:
                     cy += self.vision.game_region[1]
 
                 # Click izquierdo sobre el ítem para recogerlo
+                if not self._focus_game_window():
+                    return
                 pyautogui.click(cx, cy)
                 self.log(f"🎒 Click en ítem [{item.label}] en ({cx},{cy})")
 
@@ -316,6 +404,8 @@ class BotEngine:
             # Si no hay ítems visibles, no hace nada (no spam)
         else:
             # Modo legacy: presionar tecla sin visión
+            if not self._focus_game_window():
+                return
             keyboard.press_and_release(config.PICK_KEY)
             with self._lock:
                 self.stats["items_picked"] += 1
@@ -323,8 +413,7 @@ class BotEngine:
             if count % 20 == 0:
                 self.log(f"🎒 Intentos de recogida (modo ciego): {count}")
 
-        if self.on_stats_update:
-            self.on_stats_update(self.stats.copy())
+        self._emit_stats()
 
     # ------------------------------------------------------------------
     # Estadísticas de sesión
@@ -345,8 +434,7 @@ class BotEngine:
                         self.stop()
                         break
 
-                if self.on_stats_update:
-                    self.on_stats_update(self.stats.copy())
+                self._emit_stats()
 
             time.sleep(1)
 
@@ -360,16 +448,20 @@ class BotEngine:
         self.log(f"💔 HP bajo: {hp:.0f}% — usando poción", "WARNING")
         # Tecla de poción (configurar en config.py)
         potion_key = getattr(config, "POTION_KEY", "h")
+        if not self._focus_game_window():
+            return
         keyboard.press_and_release(potion_key)
 
     def _on_vision_state(self, state):
         with self._lock:
             self.stats["hp_percent"] = state.hp_percent
             self.stats["mp_percent"] = state.mp_percent
-        if self.on_stats_update:
-            self.on_stats_update(self.stats.copy())
+        self._emit_stats()
 
     def get_stats(self) -> dict:
         """Retorna las estadísticas actuales."""
         with self._lock:
-            return self.stats.copy()
+            stats = self.stats.copy()
+        if isinstance(stats.get("session_start"), datetime):
+            stats["session_start"] = stats["session_start"].isoformat()
+        return stats

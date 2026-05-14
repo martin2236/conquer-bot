@@ -53,6 +53,8 @@
     }
     .status-badge.active { color: var(--green); border-color: var(--green); }
     .status-badge.active .dot { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.5s infinite; }
+    .status-badge.waiting { color: var(--orange); border-color: var(--orange); }
+    .status-badge.waiting .dot { background: var(--orange); box-shadow: 0 0 8px var(--orange); animation: pulse 1.5s infinite; }
 
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
@@ -189,6 +191,15 @@
     }
     .hk-key { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent2); }
     .hk-desc { color: var(--muted); }
+    .mouse-hotkey-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-top: 10px; color: var(--muted); font-size: 12px;
+    }
+    .mouse-hotkey-row select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 6px 8px; outline: none; font-family: 'Inter', sans-serif;
+    }
+    .mouse-hotkey-row select:focus { border-color: var(--accent); }
 
     /* ── FOOTER ──────────────────────────────────────────────────────── */
     footer {
@@ -301,6 +312,14 @@
             <div class="hk-pill"><span class="hk-key">F11</span><span class="hk-desc">Pick</span></div>
             <div class="hk-pill"><span class="hk-key">F12</span><span class="hk-desc">Emergencia</span></div>
           </div>
+          <div class="mouse-hotkey-row">
+            <span>Mouse Bot ON/OFF</span>
+            <select id="mouse-toggle-button" onchange="updateMouseToggle(this.value)">
+              <option value="">Desactivado</option>
+              <option value="x1">Boton lateral 1</option>
+              <option value="x2">Boton lateral 2</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -390,6 +409,8 @@
 <script>
   const socket = io();
   let botRunning = false;
+  let autoSkillActive = false;
+  let autoPickActive = false;
 
   // ── Socket eventos ─────────────────────────────────────────────────
   socket.on('connect',    ()    => addLog('🔗 Conectado al servidor', 'SUCCESS'));
@@ -401,54 +422,78 @@
 
   function applyState(data) {
     try {
-    if (data.running !== undefined) {
-      botRunning = data.running;
-      const btn  = document.getElementById('btn-bot');
-      const badge = document.getElementById('status-badge');
-      const stext = document.getElementById('status-text');
-      if (btn && badge && stext) {
-        if (botRunning) {
-          btn.textContent = '⏹  DETENER BOT'; btn.classList.add('stop');
-          badge.classList.add('active'); stext.textContent = 'ACTIVO';
-        } else {
-          btn.textContent = '▶  INICIAR BOT'; btn.classList.remove('stop');
-          badge.classList.remove('active'); stext.textContent = 'INACTIVO';
+      if (data.running !== undefined) {
+        botRunning = data.running;
+        const btn = document.getElementById('btn-bot');
+        if (btn) {
+          if (botRunning) {
+            btn.textContent = '⏹  DETENER BOT'; btn.classList.add('stop');
+          } else {
+            btn.textContent = '▶  INICIAR BOT'; btn.classList.remove('stop');
+          }
         }
       }
-    }
-    if (data.auto_skill !== undefined) {
-      const el = document.getElementById('chk-skill');
-      if (el) el.checked = data.auto_skill;
-    }
-    if (data.auto_pick !== undefined) {
-      const el = document.getElementById('chk-pick');
-      if (el) el.checked = data.auto_pick;
-    }
-    if (data.vision !== undefined) {
-      const el = document.getElementById('chk-vision');
-      if (el) el.checked = data.vision;
-    }
-    if (data.skill_interval !== undefined) {
-      const el = document.getElementById('skill-interval');
-      if (el) el.value = data.skill_interval;
-    }
-    if (data.pick_interval !== undefined) {
-      const el = document.getElementById('pick-interval');
-      if (el) el.value = data.pick_interval;
-    }
-    if (data.archer_scatter_only !== undefined) {
-      const el = document.getElementById('chk-archer-scatter');
-      if (el) el.checked = data.archer_scatter_only;
-      const lbl = document.getElementById('skill-interval-label');
-      if (lbl) {
-        lbl.textContent = data.archer_scatter_only
-          ? 'Intervalo Scatter'
-          : 'Intervalo entre skills';
+      if (data.auto_skill !== undefined) {
+        autoSkillActive = data.auto_skill;
+        const el = document.getElementById('chk-skill');
+        if (el) el.checked = data.auto_skill;
       }
-    }
+      if (data.auto_pick !== undefined) {
+        autoPickActive = data.auto_pick;
+        const el = document.getElementById('chk-pick');
+        if (el) el.checked = data.auto_pick;
+      }
+      if (data.vision !== undefined) {
+        const el = document.getElementById('chk-vision');
+        if (el) el.checked = data.vision;
+      }
+      if (data.skill_interval !== undefined) {
+        const el = document.getElementById('skill-interval');
+        if (el) el.value = data.skill_interval;
+      }
+      if (data.pick_interval !== undefined) {
+        const el = document.getElementById('pick-interval');
+        if (el) el.value = data.pick_interval;
+      }
+      if (data.archer_scatter_only !== undefined) {
+        const el = document.getElementById('chk-archer-scatter');
+        if (el) el.checked = data.archer_scatter_only;
+        const lbl = document.getElementById('skill-interval-label');
+        if (lbl) {
+          lbl.textContent = data.archer_scatter_only
+            ? 'Intervalo Scatter'
+          : 'Intervalo entre skills';
+        }
+      }
+      if (data.mouse_toggle_bot_button !== undefined) {
+        const el = document.getElementById('mouse-toggle-button');
+        if (el) el.value = data.mouse_toggle_bot_button || '';
+      }
+      refreshRunStatus();
     } catch (e) {
       console.error('applyState', e);
     }
+  }
+
+  function refreshRunStatus() {
+    const badge = document.getElementById('status-badge');
+    const stext = document.getElementById('status-text');
+    if (!badge || !stext) return;
+
+    badge.classList.remove('active', 'waiting');
+    if (!botRunning) {
+      stext.textContent = 'INACTIVO';
+      return;
+    }
+
+    if (autoSkillActive || autoPickActive) {
+      badge.classList.add('active');
+      stext.textContent = 'ACTIVO';
+      return;
+    }
+
+    badge.classList.add('waiting');
+    stext.textContent = 'EN ESPERA';
   }
 
   function toggleArcherScatter(enabled) {
@@ -480,6 +525,9 @@
       enabled,
       interval: parseFloat(document.getElementById('pick-interval').value)
     });
+  }
+  function updateMouseToggle(button) {
+    socket.emit('update_mouse_toggle', { button });
   }
   function useSkill(name) {
     socket.emit('use_skill', { name });
