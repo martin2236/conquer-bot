@@ -59,7 +59,32 @@
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
     /* ── LAYOUT ─────────────────────────────────────────────────────── */
-    main { display: grid; grid-template-columns: 360px 1fr; gap: 20px; padding: 24px 32px; max-width: 1200px; }
+    main { display: grid; grid-template-columns: minmax(360px, 420px) 1fr; gap: 20px; padding: 24px 32px; max-width: 1280px; }
+
+    .mode-tabs {
+      display: flex; gap: 6px; margin-top: 18px;
+      padding: 4px; background: var(--bg); border-radius: 12px; border: 1px solid var(--border);
+    }
+    .mode-tab {
+      flex: 1; padding: 10px 8px; border: none; border-radius: 9px;
+      background: transparent; color: var(--muted);
+      font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700;
+      cursor: pointer; transition: background .2s, color .2s;
+    }
+    .mode-tab:hover { color: var(--text); }
+    .mode-tab.active {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 2px 12px rgba(124, 109, 255, .35);
+    }
+    .mode-panel { display: none; margin-top: 18px; }
+    .mode-panel.active { display: block; }
+    .mode-panel-scroll { max-height: 62vh; overflow-y: auto; padding-right: 4px; }
+    .mode-panel-scroll::-webkit-scrollbar { width: 4px; }
+    .mode-panel-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .mode-hint {
+      font-size: 11px; color: var(--muted); margin-bottom: 12px; line-height: 1.45;
+      padding: 10px 12px; background: var(--bg); border-radius: 10px; border: 1px solid var(--border);
+    }
 
     /* ── CARDS ──────────────────────────────────────────────────────── */
     .card {
@@ -201,6 +226,54 @@
     }
     .mouse-hotkey-row select:focus { border-color: var(--accent); }
 
+    .route-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: border-color .2s, filter .2s;
+    }
+    .route-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .route-btn:hover:not(:disabled) { filter: brightness(1.08); }
+    .route-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .route-memory-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .route-memory-row input[type="text"] {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      outline: none;
+    }
+    .route-memory-row input[type="text"]:focus { border-color: var(--accent); }
+    #route-points-list {
+      list-style: decimal;
+      padding-left: 22px;
+      margin-top: 10px;
+      max-height: 140px;
+      overflow-y: auto;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
     /* ── FOOTER ──────────────────────────────────────────────────────── */
     footer {
       text-align: center; padding: 12px;
@@ -220,7 +293,7 @@
     <span class="logo-icon">⚔️</span>
     <div class="logo-text">
       <h1>CONQUER ONLINE BOT</h1>
-      <p>Scatter Arquero · Auto Pick · Panel de Control</p>
+      <p>Modo asistido · Modo automático</p>
     </div>
   </div>
   <div class="status-badge" id="status-badge">
@@ -239,20 +312,13 @@
       <div class="card-body">
         <button id="btn-bot" onclick="toggleBot()">▶ &nbsp;INICIAR BOT</button>
 
-        <div style="margin-top:20px;">
-          <div class="toggle-row">
-            <div class="toggle-label">
-              <span class="icon">🏹</span> Solo Scatter (Arquero)
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="chk-archer-scatter" onchange="toggleArcherScatter(this.checked)">
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div style="font-size:11px;color:var(--muted);margin:6px 0 12px 4px;">
-            Auto Skill pulsa solo la tecla de Scatter. Desactivá para rotar todas las skills de la lista.
-          </div>
-          <!-- Auto Skill -->
+        <div class="mode-tabs" role="tablist">
+          <button type="button" class="mode-tab active" data-mode="assisted" onclick="switchBotMode('assisted')">🏹 Asistido</button>
+          <button type="button" class="mode-tab" data-mode="automatic" onclick="switchBotMode('automatic')">🗺️ Automático</button>
+        </div>
+
+        <div id="panel-assisted" class="mode-panel active" role="tabpanel">
+          <p class="mode-hint">Arquero: solo Scatter automático. El pick lo hacés con la tecla del juego.</p>
           <div class="toggle-row">
             <div class="toggle-label">
               <span class="icon">⚔️</span> Auto Skill
@@ -263,48 +329,132 @@
             </label>
           </div>
           <div class="interval-row">
-            <label id="skill-interval-label">Intervalo Scatter</label>
-            <input type="number" id="skill-interval" value="1.0" min="0.1" step="0.1" onchange="updateConfig()" />
+            <label>Intervalo Scatter</label>
+            <input type="number" id="skill-interval" value="1.0" min="0.1" step="0.1" oninput="syncSkillIntervalInputs(this.value)" onchange="updateConfig()" />
             <span>seg</span>
           </div>
         </div>
 
-        <div style="margin-top:16px;">
-          <!-- Auto Pick -->
+        <div id="panel-automatic" class="mode-panel" role="tabpanel">
+          <div class="mode-panel-scroll">
+          <p class="mode-hint">Ruta por memoria + visión para mobs. Configurá Lat/Lng antes de trazar saltos. Inventario cada 3&nbsp;min: si el último slot tiene ítem → Escape×2 y desconexión.</p>
+
           <div class="toggle-row">
             <div class="toggle-label">
-              <span class="icon">🎒</span> Auto Pick
+              <span class="icon">⚔️</span> Auto Skill
             </div>
             <label class="switch">
-              <input type="checkbox" id="chk-pick" onchange="togglePick(this.checked)">
+              <input type="checkbox" id="chk-skill-auto" onchange="toggleSkill(this.checked)">
               <span class="slider"></span>
             </label>
           </div>
           <div class="interval-row">
-            <label>Intervalo entre picks</label>
-            <input type="number" id="pick-interval" value="0.5" min="0.1" step="0.1" onchange="updateConfig()" />
+            <label>Intervalo Scatter</label>
+            <input type="number" id="skill-interval-auto" value="1.0" min="0.1" step="0.1" oninput="syncSkillIntervalInputs(this.value)" onchange="updateConfig()" />
             <span>seg</span>
           </div>
+
+          <div style="margin-top:16px;">
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="icon">👁️</span> Visión (OpenCV)
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="chk-vision" onchange="toggleVision(this.checked)">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:4px;">
+              Detecta ítems por color y enemigos por barra HP
+            </div>
+            <div class="interval-row">
+              <label>Mobs para usar skill</label>
+              <input type="number" id="scatter-min-enemies" value="5" min="0" max="20" step="1" onchange="updateConfig()" />
+              <span>mobs</span>
+            </div>
+          </div>
+
+        <div style="margin-top:16px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">MEMORIA · FLECHAS</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding-left:2px;">
+            Dirección <strong>hex</strong> desde Cheat Engine (tipo <strong>2 Bytes</strong>). Si reiniciás el cliente, volvé a escanear y pegá la nueva dirección.
+          </div>
+          <div class="interval-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
+            <input type="text" id="memory-arrows-hex" placeholder="ej: 083C3BF2" maxlength="24"
+              style="flex:1;min-width:160px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:monospace;font-size:13px;" />
+            <button type="button" class="route-btn primary" onclick="saveMemoryArrows()">Guardar</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;padding-left:2px;" id="memory-process-hint"></div>
         </div>
 
         <div style="margin-top:16px;">
-          <!-- Vision -->
-          <div class="toggle-row">
-            <div class="toggle-label">
-              <span class="icon">👁️</span> Visión (OpenCV)
-            </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">MEMORIA · MAPA (LAT / LNG)</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding-left:2px;">
+            Obligatorio para la <strong>ruta automática</strong>: dos direcciones <strong>hex</strong> (2 Bytes), como en Cheat Engine. Equivale a las coords X/Y del mapa en el HUD.
+          </div>
+          <div class="route-memory-row">
+            <input type="text" id="memory-lat-hex" placeholder="Lat (hex)" maxlength="24" autocomplete="off" />
+            <input type="text" id="memory-lng-hex" placeholder="Lng (hex)" maxlength="24" autocomplete="off" />
+            <button type="button" class="route-btn primary" onclick="saveMemoryCoords()">Guardar mapa</button>
+          </div>
+          <div style="font-size:11px;color:var(--orange);margin-top:6px;padding-left:2px;min-height:16px;" id="route-coords-status"></div>
+        </div>
+
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">RUTA · CTRL+CLIC</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding-left:2px;">
+            Ubicá el cursor sobre cada destino en el mapa y agregá puntos en orden. Sin Lat/Lng guardados no se puede trazar la ruta.
+          </div>
+          <div class="toggle-row" style="padding:6px 0;">
+            <span style="font-size:13px;font-weight:600;">Repetir en bucle</span>
             <label class="switch">
-              <input type="checkbox" id="chk-vision" onchange="toggleVision(this.checked)">
+              <input type="checkbox" id="route-loop" onchange="emitRouteConfig()" />
               <span class="slider"></span>
             </label>
           </div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:4px;">
-            Detecta ítems por color y enemigos por barra HP
+          <div class="interval-row">
+            <label>Espera tras salto</label>
+            <input type="number" id="route-landing-wait" value="1.0" min="0.1" step="0.1" onchange="emitRouteConfig()" />
+            <span>seg</span>
           </div>
           <div class="interval-row">
-            <label>Mobs para usar skill</label>
-            <input type="number" id="scatter-min-enemies" value="5" min="0" max="20" step="1" onchange="updateConfig()" />
-            <span>mobs</span>
+            <label>Scatter antes de saltar</label>
+            <input type="number" id="route-scatter-count" value="1" min="0" max="5" step="1" onchange="emitRouteConfig()" />
+            <span>×</span>
+          </div>
+          <div class="interval-row" style="margin-top:8px;">
+            <label style="flex:1;">Etiqueta (opcional)</label>
+            <input type="text" id="route-point-label" placeholder="ej: entrada PK" autocomplete="off"
+              style="flex:2;min-width:120px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;outline:none;font-family:Inter,sans-serif;" />
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+            <button type="button" class="route-btn primary" id="btn-route-add" onclick="routeAddPoint()">Agregar punto aquí</button>
+            <button type="button" class="route-btn primary" id="btn-route-start" onclick="routeStart()" disabled>Iniciar ruta</button>
+            <button type="button" class="route-btn" id="btn-route-stop" onclick="routeStop()" disabled>Detener ruta</button>
+            <button type="button" class="route-btn" onclick="routeClear()">Vaciar ruta</button>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.45;">
+              Biblioteca en disco: archivo <code style="font-size:10px;color:var(--accent2);">saved_routes.json</code>
+              (lista de saltos: pantalla + coords de mapa y opciones bucle / espera).
+            </div>
+            <div class="route-memory-row" style="margin-bottom:8px;">
+              <input type="text" id="route-save-name" placeholder="Nombre para guardar" maxlength="48" autocomplete="off"
+                style="flex:1;min-width:140px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;outline:none;font-family:Inter,sans-serif;" />
+              <button type="button" class="route-btn primary" onclick="routeLibrarySave()">Guardar en disco</button>
+            </div>
+            <div class="route-memory-row">
+              <select id="route-library-select"
+                style="flex:1;min-width:160px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;outline:none;font-family:Inter,sans-serif;">
+                <option value="">— Rutas guardadas —</option>
+              </select>
+              <button type="button" class="route-btn" onclick="routeLibraryLoad()">Cargar</button>
+              <button type="button" class="route-btn" onclick="routeLibraryDelete()">Eliminar</button>
+            </div>
+          </div>
+          <ul id="route-points-list"></ul>
+        </div>
+
           </div>
         </div>
 
@@ -393,9 +543,28 @@
           <span class="color-green" id="stat-detected">0</span>
         </div>
         <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>ðŸ¹ Mobs detectados</span>
+          <span>🏹 Mobs detectados</span>
           <span class="color-accent" id="stat-enemies">0</span>
         </div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>🏹 Flechas (memoria)</span>
+          <span class="color-yellow" id="stat-arrows">—</span>
+        </div>
+        <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-arrows-err"></div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>🗺️ Mapa X (memoria)</span>
+          <span class="color-accent" id="stat-map-x">—</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>🗺️ Mapa Y (memoria)</span>
+          <span class="color-accent" id="stat-map-y">—</span>
+        </div>
+        <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-map-err"></div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>🎒 Inventario (último slot)</span>
+          <span class="color-yellow" id="stat-inventory">—</span>
+        </div>
+        <div style="margin-top:4px;font-size:10px;color:var(--muted);min-height:14px;" id="stat-inventory-detail"></div>
       </div>
     </div>
 
@@ -413,16 +582,186 @@
   </div>
 </main>
 
-<footer>⚠️ Solo para uso educativo · Conquer Online Bot · Arquero Scatter + Auto Pick</footer>
+<footer>⚠️ Solo para uso educativo · Conquer Online Bot · Modo asistido y automático</footer>
 
 <script>
   const socket = io();
   let botRunning = false;
   let autoSkillActive = false;
-  let autoPickActive = false;
+  let routeMemoryReady = false;
+  let routeRunning = false;
+  let botMode = 'assisted';
 
-  // ── Socket eventos ─────────────────────────────────────────────────
-  socket.on('connect',    ()    => addLog('🔗 Conectado al servidor', 'SUCCESS'));
+  function syncSkillCheckboxes(checked) {
+    ['chk-skill', 'chk-skill-auto'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = !!checked;
+    });
+  }
+
+  function syncSkillIntervalInputs(value) {
+    if (value === undefined || value === '') return;
+    ['skill-interval', 'skill-interval-auto'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    });
+  }
+
+  function getSkillInterval() {
+    const el = botMode === 'automatic'
+      ? document.getElementById('skill-interval-auto')
+      : document.getElementById('skill-interval');
+    const fallback = document.getElementById('skill-interval') || document.getElementById('skill-interval-auto');
+    return parseFloat((el || fallback).value) || 1;
+  }
+
+  function switchBotMode(mode) {
+    botMode = mode === 'automatic' ? 'automatic' : 'assisted';
+    document.querySelectorAll('.mode-tab').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.mode === botMode);
+    });
+    const assisted = document.getElementById('panel-assisted');
+    const automatic = document.getElementById('panel-automatic');
+    if (assisted) assisted.classList.toggle('active', botMode === 'assisted');
+    if (automatic) automatic.classList.toggle('active', botMode === 'automatic');
+    try { localStorage.setItem('bot_ui_mode', botMode); } catch (_) {}
+    if (botMode === 'assisted') {
+      socket.emit('toggle_archer_scatter', { enabled: true });
+      socket.emit('toggle_pick', { enabled: false });
+      const vision = document.getElementById('chk-vision');
+      if (vision && vision.checked) socket.emit('toggle_vision', { enabled: false });
+      socket.emit('route_stop');
+    }
+    refreshRunStatus();
+  }
+
+  function saveMemoryCoords() {
+    const latEl = document.getElementById('memory-lat-hex');
+    const lngEl = document.getElementById('memory-lng-hex');
+    socket.emit('update_memory_coords', {
+      lat_hex: latEl ? latEl.value.trim() : '',
+      lng_hex: lngEl ? lngEl.value.trim() : '',
+    });
+  }
+
+  function emitRouteConfig() {
+    const loopEl = document.getElementById('route-loop');
+    const waitEl = document.getElementById('route-landing-wait');
+    const scEl = document.getElementById('route-scatter-count');
+    socket.emit('route_update_config', {
+      loop: loopEl ? loopEl.checked : false,
+      landing_wait: waitEl ? parseFloat(waitEl.value) : 1,
+      scatter_before_jump: scEl ? parseInt(scEl.value || '0', 10) : 0,
+    });
+  }
+
+  function routeAddPoint() {
+    const lab = document.getElementById('route-point-label');
+    socket.emit('route_add_point', { label: lab ? lab.value.trim() : '' });
+  }
+
+  function routeStart() {
+    socket.emit('route_start');
+  }
+
+  function routeStop() {
+    socket.emit('route_stop');
+  }
+
+  function routeClear() {
+    socket.emit('route_clear');
+  }
+
+  function routeLibrarySave() {
+    const el = document.getElementById('route-save-name');
+    socket.emit('route_library_save', { name: el ? el.value.trim() : '' });
+  }
+
+  function routeLibraryLoad() {
+    const sel = document.getElementById('route-library-select');
+    if (!sel || !sel.value) {
+      addLog('Seleccioná una ruta guardada en la lista.', 'WARNING');
+      return;
+    }
+    socket.emit('route_library_load', { name: sel.value });
+  }
+
+  function routeLibraryDelete() {
+    const sel = document.getElementById('route-library-select');
+    if (!sel || !sel.value) return;
+    if (!confirm('¿Eliminar la ruta «' + sel.value + '» del disco?')) return;
+    socket.emit('route_library_delete', { name: sel.value });
+  }
+
+  function renderSavedRoutesList(list) {
+    const sel = document.getElementById('route-library-select');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '';
+    const z = document.createElement('option');
+    z.value = '';
+    z.textContent = '— Rutas guardadas —';
+    sel.appendChild(z);
+    (list || []).forEach((r) => {
+      const o = document.createElement('option');
+      o.value = r.name;
+      o.textContent = r.name + ' (' + r.points_count + ' pts)';
+      sel.appendChild(o);
+    });
+    if (prev && [...sel.options].some((op) => op.value === prev)) {
+      sel.value = prev;
+    }
+  }
+
+  function updateRouteCoordsStatus() {
+    const el = document.getElementById('route-coords-status');
+    if (!el) return;
+    el.textContent = routeMemoryReady
+      ? 'Memoria de mapa lista. Agregá puntos con el cursor sobre cada destino.'
+      : 'Guardá Lat y Lng válidos para habilitar puntos de ruta e «Iniciar ruta».';
+  }
+
+  function renderRoutePanel(route) {
+    if (!route) return;
+    const pts = route.points || [];
+    const cfg = route.config || {};
+    const loopEl = document.getElementById('route-loop');
+    const waitEl = document.getElementById('route-landing-wait');
+    const scEl = document.getElementById('route-scatter-count');
+    if (loopEl) loopEl.checked = !!cfg.loop;
+    if (waitEl && cfg.landing_wait != null) waitEl.value = cfg.landing_wait;
+    if (scEl && cfg.scatter_before_jump != null) scEl.value = cfg.scatter_before_jump;
+
+    const ul = document.getElementById('route-points-list');
+    if (ul) {
+      ul.innerHTML = '';
+      const cur = cfg.current_index || 0;
+      const running = !!cfg.running;
+      pts.forEach((p, i) => {
+        const li = document.createElement('li');
+        li.style.margin = '4px 0';
+        li.style.color = (running && i === cur) ? 'var(--accent2)' : 'var(--muted)';
+        li.textContent = `${i + 1}. ${p.label} · mapa (${p.game_x},${p.game_y})`;
+        ul.appendChild(li);
+      });
+    }
+
+    const btnAdd = document.getElementById('btn-route-add');
+    const btnStart = document.getElementById('btn-route-start');
+    const btnStop = document.getElementById('btn-route-stop');
+    if (btnAdd) btnAdd.disabled = !routeMemoryReady;
+    if (btnStart) btnStart.disabled = !routeMemoryReady || pts.length < 2 || !!cfg.running;
+    if (btnStop) btnStop.disabled = !cfg.running;
+    routeRunning = !!cfg.running;
+    refreshRunStatus();
+  }
+
+  socket.on('connect', () => {
+    addLog('🔗 Conectado al servidor', 'SUCCESS');
+    let saved = 'assisted';
+    try { saved = localStorage.getItem('bot_ui_mode') || 'assisted'; } catch (_) {}
+    switchBotMode(saved);
+  });
   socket.on('disconnect', ()    => addLog('❌ Desconectado del servidor', 'ERROR'));
   socket.on('connect_error', (err) => addLog('❌ Error de conexión WebSocket: ' + (err && err.message ? err.message : String(err)), 'ERROR'));
   socket.on('log',   data       => addLog(data.msg, data.level));
@@ -444,43 +783,51 @@
       }
       if (data.auto_skill !== undefined) {
         autoSkillActive = data.auto_skill;
-        const el = document.getElementById('chk-skill');
-        if (el) el.checked = data.auto_skill;
-      }
-      if (data.auto_pick !== undefined) {
-        autoPickActive = data.auto_pick;
-        const el = document.getElementById('chk-pick');
-        if (el) el.checked = data.auto_pick;
+        syncSkillCheckboxes(data.auto_skill);
       }
       if (data.vision !== undefined) {
         const el = document.getElementById('chk-vision');
         if (el) el.checked = data.vision;
       }
       if (data.skill_interval !== undefined) {
-        const el = document.getElementById('skill-interval');
-        if (el) el.value = data.skill_interval;
-      }
-      if (data.pick_interval !== undefined) {
-        const el = document.getElementById('pick-interval');
-        if (el) el.value = data.pick_interval;
+        syncSkillIntervalInputs(data.skill_interval);
       }
       if (data.scatter_min_enemies !== undefined) {
         const el = document.getElementById('scatter-min-enemies');
         if (el) el.value = data.scatter_min_enemies;
       }
-      if (data.archer_scatter_only !== undefined) {
-        const el = document.getElementById('chk-archer-scatter');
-        if (el) el.checked = data.archer_scatter_only;
-        const lbl = document.getElementById('skill-interval-label');
-        if (lbl) {
-          lbl.textContent = data.archer_scatter_only
-            ? 'Intervalo Scatter'
-          : 'Intervalo entre skills';
-        }
+      if (data.archer_scatter_only === false && botMode === 'assisted') {
+        socket.emit('toggle_archer_scatter', { enabled: true });
       }
       if (data.mouse_toggle_bot_button !== undefined) {
         const el = document.getElementById('mouse-toggle-button');
         if (el) el.value = data.mouse_toggle_bot_button || '';
+      }
+      if (data.memory_arrows_address_hex !== undefined) {
+        const el = document.getElementById('memory-arrows-hex');
+        if (el) el.value = data.memory_arrows_address_hex || '';
+      }
+      if (data.memory_lat_address_hex !== undefined) {
+        const el = document.getElementById('memory-lat-hex');
+        if (el) el.value = data.memory_lat_address_hex || '';
+      }
+      if (data.memory_lng_address_hex !== undefined) {
+        const el = document.getElementById('memory-lng-hex');
+        if (el) el.value = data.memory_lng_address_hex || '';
+      }
+      if (data.route_memory_ready !== undefined) {
+        routeMemoryReady = !!data.route_memory_ready;
+        updateRouteCoordsStatus();
+      }
+      if (data.route !== undefined) {
+        renderRoutePanel(data.route);
+      }
+      if (data.saved_routes !== undefined) {
+        renderSavedRoutesList(data.saved_routes);
+      }
+      if (data.game_process_name !== undefined) {
+        const hint = document.getElementById('memory-process-hint');
+        if (hint) hint.textContent = 'Proceso: ' + (data.game_process_name || '—') + ' · ejecutá el bot como admin si CE también lo necesita.';
       }
       refreshRunStatus();
     } catch (e) {
@@ -499,7 +846,7 @@
       return;
     }
 
-    if (autoSkillActive || autoPickActive) {
+    if (autoSkillActive || (botMode === 'automatic' && routeRunning)) {
       badge.classList.add('active');
       stext.textContent = 'ACTIVO';
       return;
@@ -507,14 +854,6 @@
 
     badge.classList.add('waiting');
     stext.textContent = 'EN ESPERA';
-  }
-
-  function toggleArcherScatter(enabled) {
-    socket.emit('toggle_archer_scatter', { enabled });
-    const lbl = document.getElementById('skill-interval-label');
-    if (lbl) {
-      lbl.textContent = enabled ? 'Intervalo Scatter' : 'Intervalo entre skills';
-    }
   }
 
   // ── Controles ──────────────────────────────────────────────────────
@@ -528,15 +867,10 @@
     socket.emit('toggle_bot', { running: next });
   }
   function toggleSkill(enabled) {
+    syncSkillCheckboxes(enabled);
     socket.emit('toggle_skill', {
       enabled,
-      interval: parseFloat(document.getElementById('skill-interval').value)
-    });
-  }
-  function togglePick(enabled) {
-    socket.emit('toggle_pick', {
-      enabled,
-      interval: parseFloat(document.getElementById('pick-interval').value)
+      interval: getSkillInterval(),
     });
   }
   function updateMouseToggle(button) {
@@ -550,11 +884,16 @@
     socket.emit('reset_stats');
   }
   function updateConfig() {
+    const scatterEl = document.getElementById('scatter-min-enemies');
     socket.emit('update_config', {
-      skill_interval: parseFloat(document.getElementById('skill-interval').value),
-      pick_interval:  parseFloat(document.getElementById('pick-interval').value),
-      scatter_min_enemies: parseInt(document.getElementById('scatter-min-enemies').value || '0', 10),
+      skill_interval: getSkillInterval(),
+      scatter_min_enemies: scatterEl ? parseInt(scatterEl.value || '0', 10) : 0,
     });
+  }
+
+  function saveMemoryArrows() {
+    const v = document.getElementById('memory-arrows-hex').value.trim();
+    socket.emit('update_memory_arrows', { address_hex: v });
   }
 
   // ── Log ────────────────────────────────────────────────────────────
@@ -599,6 +938,45 @@
       const mp = data.mp_percent;
       document.getElementById('mp-bar').style.width  = mp + '%';
       document.getElementById('mp-text').textContent = mp.toFixed(0) + '%';
+    }
+    const ar = document.getElementById('stat-arrows');
+    const arErr = document.getElementById('stat-arrows-err');
+    if (ar && data.arrows_memory !== undefined) {
+      ar.textContent =
+        data.arrows_memory === null || data.arrows_memory === undefined ? '—' : String(data.arrows_memory);
+    }
+    if (arErr && data.arrows_memory_err !== undefined) {
+      arErr.textContent = data.arrows_memory_err || '';
+    }
+    const mx = document.getElementById('stat-map-x');
+    const my = document.getElementById('stat-map-y');
+    const me = document.getElementById('stat-map-err');
+    if (mx && data.map_x_memory !== undefined) {
+      mx.textContent =
+        data.map_x_memory === null || data.map_x_memory === undefined ? '—' : String(data.map_x_memory);
+    }
+    if (my && data.map_y_memory !== undefined) {
+      my.textContent =
+        data.map_y_memory === null || data.map_y_memory === undefined ? '—' : String(data.map_y_memory);
+    }
+    if (me && data.map_coords_err !== undefined) {
+      me.textContent = data.map_coords_err || '';
+    }
+    const inv = document.getElementById('stat-inventory');
+    const invD = document.getElementById('stat-inventory-detail');
+    if (inv && data.inventory_full !== undefined) {
+      if (data.inventory_full === null || data.inventory_full === undefined) {
+        inv.textContent = '—';
+      } else if (data.inventory_full) {
+        inv.textContent = 'LLENO';
+        inv.style.color = 'var(--red)';
+      } else {
+        inv.textContent = 'OK';
+        inv.style.color = 'var(--green)';
+      }
+    }
+    if (invD && data.inventory_check_err !== undefined) {
+      invD.textContent = data.inventory_check_err || '';
     }
   }
 </script>

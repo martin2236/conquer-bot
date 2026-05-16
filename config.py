@@ -68,6 +68,57 @@ MIN_RARITY_TO_PICK = "common"  # "common", "uncommon", "rare", "epic", "legendar
 # --- Configuración de ventana del juego ---
 GAME_WINDOW_TITLE = "ClassicConquer"  # Texto que debe aparecer en el titulo de la ventana
 
+# --- Lectura de memoria (flechas, etc.) · pymem ---
+# Nombre del ejecutable como en el Administrador de tareas (ej. ImConquer.exe).
+GAME_PROCESS_NAME = "ImConquer.exe"
+# Dirección del contador de flechas que obtuviste en Cheat Engine (hex, sin 0x).
+# La UI del panel también puede sobrescribir esto al vuelo.
+MEMORY_ARROWS_ADDRESS_HEX = ""
+# Tipo en RAM del contador (vos encontraste 2 Bytes).
+MEMORY_ARROWS_VALUE_BYTES = 2
+
+# Coordenadas de mapa en RAM (mismo tipo que en Cheat Engine: 2 Bytes cada una).
+# Obligatorias para usar la ruta automática (Lat = X, Lng = Y del HUD tipo [Classic_US] (X,Y)).
+MEMORY_LAT_ADDRESS_HEX = ""
+MEMORY_LNG_ADDRESS_HEX = ""
+MEMORY_COORDS_VALUE_BYTES = 2
+
+# Salto entre puntos de ruta (después de mover el mouse al objetivo en pantalla).
+ROUTE_LANDING_WAIT = 1.0
+ROUTE_SCATTER_BEFORE_JUMP = 1
+
+# --- Inventario lleno (último slot visible en esquina sup. izq.) ---
+# Dejá el último hueco del inventario fijo ahí; si tiene ícono, se asume bolsa llena.
+INVENTORY_CHECK_ENABLED = True
+INVENTORY_CHECK_INTERVAL_SEC = 180  # cada 3 minutos
+# Región del slot en % de la captura: (izq, arriba, ancho, alto). Calibrá con calibrate.py si falla.
+INVENTORY_LAST_SLOT_REGION_PCT = (0.0, 0.0, 0.028, 0.052)
+# Opcional: PNG del slot vacío (mejor precisión). Si no existe, se usa contraste/variación.
+INVENTORY_SLOT_EMPTY_TEMPLATE = "templates/inventory_slot_empty.png"
+INVENTORY_SLOT_EMPTY_MATCH_MIN = 0.82
+# Umbrales si no hay template (slot con ítem suele tener más textura)
+INVENTORY_SLOT_LAPLACIAN_FULL_MIN = 75.0
+INVENTORY_SLOT_STD_FULL_MIN = 16.0
+# Lecturas consecutivas con slot ocupado antes de desconectar (evita falsos positivos)
+INVENTORY_FULL_CONFIRM_CHECKS = 2
+# Al detectar lleno: detener ruta automática y avisar en log
+INVENTORY_FULL_STOP_ROUTE = True
+# Desconectar personaje: Escape (cierra inventario) + Escape (menú sesión) + clic en Disconnect
+INVENTORY_FULL_DISCONNECT = True
+INVENTORY_DISCONNECT_ESC_DELAY = 0.45
+INVENTORY_DISCONNECT_MENU_DELAY = 0.65
+# Clic respecto al centro de la ventana del juego (px). Ajustá Y si no cae en «Disconnect».
+INVENTORY_DISCONNECT_CLICK_OFFSET_X = 0
+INVENTORY_DISCONNECT_CLICK_OFFSET_Y = 28
+
+# Barras HP/MP por visión (desactivado hasta calibrar con calibrate.py; si no, lee 0% y spamea alertas)
+HP_MP_VISION_ENABLED = False
+HP_BAR_REGION = (10, 10, 150, 14)
+MP_BAR_REGION = (10, 28, 150, 14)
+LOW_HP_ALERT_ENABLED = False
+POTION_KEY = "h"
+POTION_COOLDOWN_SEC = 45
+
 # --- Hotkeys globales del bot ---
 HOTKEY_TOGGLE_BOT    = "space"   # Activar/desactivar bot completo
 HOTKEY_TOGGLE_SKILL  = "F10"  # Activar/desactivar auto skill

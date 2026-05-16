@@ -10,6 +10,8 @@ Usa OpenCV para capturar la pantalla y detectar:
 
 import time
 import threading
+from pathlib import Path
+
 import numpy as np
 import cv2
 import pyautogui
@@ -83,11 +85,13 @@ class VisionEngine:
         # Ejemplo: (0, 0, 1024, 768) si el juego corre en esa resolución
         self.game_region: Optional[tuple] = None
 
-        # Posiciones de las barras de HP/MP en tu resolución
-        # Ajustar con calibrate_colors.py
-        # Formato: (x_inicio, y, ancho_total, alto)
-        self.hp_bar_region = (10, 10, 150, 14)   # Ejemplo — calibrar
-        self.mp_bar_region = (10, 28, 150, 14)   # Ejemplo — calibrar
+        # Posiciones de las barras de HP/MP (solo si HP_MP_VISION_ENABLED en config)
+        if config and getattr(config, "HP_MP_VISION_ENABLED", False):
+            self.hp_bar_region = tuple(getattr(config, "HP_BAR_REGION", (10, 10, 150, 14)))
+            self.mp_bar_region = tuple(getattr(config, "MP_BAR_REGION", (10, 28, 150, 14)))
+        else:
+            self.hp_bar_region = None
+            self.mp_bar_region = None
 
         # Color de la barra de HP llena (rojo) y MP (azul) en BGR
         self.hp_color_bgr = (0, 0, 200)
@@ -153,7 +157,7 @@ class VisionEngine:
                 if frame is not None:
                     items   = self._detect_items(frame)
                     enemies = self._detect_enemies(frame)
-                    hp, mp  = self._read_hp_mp(frame)
+                    hp, mp = self._read_hp_mp(frame)
 
                     with self._lock:
                         self.state.items_on_ground = items
@@ -166,7 +170,16 @@ class VisionEngine:
                     if items and self.on_item_found:
                         self.on_item_found(items[0])   # primer ítem detectado
 
-                    if hp < self.hp_alert_threshold and prev_hp >= self.hp_alert_threshold:
+                    hp_alerts = (
+                        config
+                        and getattr(config, "HP_MP_VISION_ENABLED", False)
+                        and getattr(config, "LOW_HP_ALERT_ENABLED", False)
+                    )
+                    if (
+                        hp_alerts
+                        and hp < self.hp_alert_threshold
+                        and prev_hp >= self.hp_alert_threshold
+                    ):
                         if self.on_low_hp:
                             self.on_low_hp(hp)
 
@@ -344,6 +357,8 @@ class VisionEngine:
         IMPORTANTE: Debes calibrar hp_bar_region y mp_bar_region
         con calibrate_colors.py para tu resolución.
         """
+        if self.hp_bar_region is None or self.mp_bar_region is None:
+            return 100.0, 100.0
         hp_pct = self._read_bar(frame, self.hp_bar_region, self.hp_color_bgr)
         mp_pct = self._read_bar(frame, self.mp_bar_region, self.mp_color_bgr)
         return hp_pct, mp_pct
@@ -396,6 +411,26 @@ class VisionEngine:
         return None
 
     # ── Debug: guardar frame anotado ───────────────────────────────────────────
+    def save_inventory_slot_debug(self, path: str = "debug_inventory_slot.png") -> Optional[str]:
+        """Guarda el recorte del último slot y el resultado de la detección (calibración)."""
+        frame = self._capture()
+        if frame is None:
+            return None
+        roi, box = _inventory_slot_roi(frame)
+        if roi is None or roi.size == 0:
+            return None
+        full, detail = _classify_inventory_slot(roi)
+        vis = roi.copy()
+        label = "LLENO" if full else ("VACIO" if full is False else "?")
+        cv2.putText(vis, f"{label} {detail}", (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1)
+        x1, y1, x2, y2 = box
+        out = frame.copy()
+        cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        cv2.imwrite(path, vis)
+        cv2.imwrite(path.replace(".png", "_fullscreen.png"), out)
+        logger.info("Debug inventario: %s -> %s", path, label)
+        return path
+
     def save_debug_frame(self, path: str = "debug_frame.png"):
         """
         Guarda un screenshot con los objetos detectados marcados.
@@ -430,3 +465,74 @@ class VisionEngine:
         cv2.imwrite(path, frame)
         logger.info(f"👁  Debug frame guardado en {path}")
         return path
+
+
+def _inventory_slot_roi(frame: np.ndarray) -> tuple[Optional[np.ndarray], tuple[int, int, int, int]]:
+    if config is None:
+        return None, (0, 0, 0, 0)
+    pct = getattr(config, "INVENTORY_LAST_SLOT_REGION_PCT", None)
+    if not pct or len(pct) != 4:
+        return None, (0, 0, 0, 0)
+    h, w = frame.shape[:2]
+    left, top, rw, rh = (float(pct[0]), float(pct[1]), float(pct[2]), float(pct[3]))
+    x1 = max(0, int(w * left))
+    y1 = max(0, int(h * top))
+    x2 = min(w, int(w * (left + rw)))
+    y2 = min(h, int(h * (top + rh)))
+    if x2 <= x1 + 2 or y2 <= y1 + 2:
+        return None, (x1, y1, x2, y2)
+    return frame[y1:y2, x1:x2], (x1, y1, x2, y2)
+
+
+def _classify_inventory_slot(roi: np.ndarray) -> tuple[Optional[bool], str]:
+    """
+    True = slot parece ocupado (inventario probablemente lleno).
+    False = parece vacío.
+    """
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    lap = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    std = float(np.std(gray))
+
+    tmpl_path = getattr(config, "INVENTORY_SLOT_EMPTY_TEMPLATE", "") if config else ""
+    if tmpl_path:
+        path = Path(tmpl_path)
+        if not path.is_file() and config:
+            base = Path(__file__).resolve().parent
+            path = base / tmpl_path
+        if path.is_file():
+            tmpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if tmpl is not None and tmpl.size > 0:
+                th, tw = tmpl.shape[:2]
+                rh, rw = roi.shape[:2]
+                if th <= rh and tw <= rw:
+                    res = cv2.matchTemplate(roi, tmpl, cv2.TM_CCOEFF_NORMED)
+                    match = float(res.max())
+                    thr = float(getattr(config, "INVENTORY_SLOT_EMPTY_MATCH_MIN", 0.82))
+                    if match >= thr:
+                        return False, f"tpl={match:.2f}"
+                    return True, f"tpl={match:.2f}"
+
+    lap_min = float(getattr(config, "INVENTORY_SLOT_LAPLACIAN_FULL_MIN", 75.0) if config else 75.0)
+    std_min = float(getattr(config, "INVENTORY_SLOT_STD_FULL_MIN", 16.0) if config else 16.0)
+    if lap >= lap_min or std >= std_min:
+        return True, f"lap={lap:.0f} std={std:.1f}"
+    return False, f"lap={lap:.0f} std={std:.1f}"
+
+
+def check_inventory_last_slot_occupied(frame: Optional[np.ndarray] = None) -> tuple[Optional[bool], str]:
+    """
+    Revisa si el último slot (esquina configurada) muestra un ítem.
+    None = no se pudo evaluar; True = ocupado; False = vacío.
+    """
+    if config is not None and not getattr(config, "INVENTORY_CHECK_ENABLED", True):
+        return None, ""
+    try:
+        if frame is None:
+            screenshot = pyautogui.screenshot()
+            frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        roi, _box = _inventory_slot_roi(frame)
+        if roi is None or roi.size == 0:
+            return None, "Región de slot inválida (calibrá INVENTORY_LAST_SLOT_REGION_PCT)"
+        return _classify_inventory_slot(roi)
+    except Exception as e:
+        return None, str(e)[:120]

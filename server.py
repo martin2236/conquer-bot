@@ -14,7 +14,14 @@ from flask_socketio import SocketIO, emit
 from pynput.mouse import Button, Listener as MouseListener
 
 import config
+import route_storage
+import settings_storage
 from bot_engine import BotEngine
+
+try:
+    import game_memory
+except ImportError:
+    game_memory = None
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = "conquer-bot-secret"
@@ -34,10 +41,30 @@ def _on_stats(stats: dict):
     socketio.emit("stats", stats, namespace=_NS)
 
 
+settings_storage.apply_memory_to_config()
+
 engine = BotEngine(on_log=_on_log, on_stats_update=_on_stats)
+engine.on_route_update = lambda: _broadcast_state()
+
+_mem = settings_storage.load_memory_settings()
+if any(_mem.values()):
+    print(
+        "Memoria CE cargada desde saved_memory.json:",
+        ", ".join(k for k, v in _mem.items() if v),
+    )
+
+
+def _snapshot_route_config(cfg: dict | None) -> dict:
+    cfg = cfg or {}
+    return {
+        "loop": bool(cfg.get("loop", False)),
+        "landing_wait": float(cfg.get("landing_wait", 1.0)),
+        "scatter_before_jump": int(cfg.get("scatter_before_jump", 1)),
+    }
 
 
 def _current_state() -> dict:
+    route_state = engine.get_route_state()
     return {
         "running": engine.running,
         "auto_skill": engine.auto_skill_enabled,
@@ -49,6 +76,13 @@ def _current_state() -> dict:
         "scatter_min_enemies": getattr(config, "SCATTER_MIN_ENEMIES", 0),
         "archer_scatter_only": getattr(config, "ARCHER_SCATTER_ONLY", False),
         "mouse_toggle_bot_button": getattr(config, "MOUSE_TOGGLE_BOT_BUTTON", ""),
+        "memory_arrows_address_hex": getattr(config, "MEMORY_ARROWS_ADDRESS_HEX", ""),
+        "memory_lat_address_hex": getattr(config, "MEMORY_LAT_ADDRESS_HEX", ""),
+        "memory_lng_address_hex": getattr(config, "MEMORY_LNG_ADDRESS_HEX", ""),
+        "route_memory_ready": engine.route_memory_ready(),
+        "route": route_state,
+        "saved_routes": route_storage.list_summaries(),
+        "game_process_name": getattr(config, "GAME_PROCESS_NAME", ""),
     }
 
 
@@ -192,6 +226,143 @@ def handle_connect():
     emit("state", _current_state())
     emit("stats", engine.get_stats())
     emit("log", {"msg": "Interfaz conectada al bot", "level": "SUCCESS"})
+
+
+@socketio.on("update_memory_arrows")
+def handle_update_memory_arrows(data):
+    raw = str((data or {}).get("address_hex", "")).strip()
+    settings_storage.save_memory_settings(arrows=raw)
+    if game_memory:
+        game_memory.invalidate_process_handle()
+    if raw:
+        addr_ok = game_memory and game_memory.parse_hex_address(raw) is not None
+        if not addr_ok:
+            _on_log("Direccion de flechas invalida (hex sin espacios, ej: 083C3BF2)", "WARNING")
+        else:
+            _on_log(f"Direccion flechas guardada en disco: {raw.upper()}", "SUCCESS")
+    else:
+        _on_log("Lectura de flechas por memoria desactivada (campo vacio)", "INFO")
+    _broadcast_state()
+
+
+@socketio.on("update_memory_coords")
+def handle_update_memory_coords(data):
+    lat_raw = str((data or {}).get("lat_hex", "")).strip()
+    lng_raw = str((data or {}).get("lng_hex", "")).strip()
+    settings_storage.save_memory_settings(lat=lat_raw, lng=lng_raw)
+    if game_memory:
+        game_memory.invalidate_process_handle()
+    if lat_raw and lng_raw:
+        addr_ok = (
+            game_memory
+            and game_memory.parse_hex_address(lat_raw) is not None
+            and game_memory.parse_hex_address(lng_raw) is not None
+        )
+        if not addr_ok:
+            _on_log("Direccion Lat/Lng invalida (hex sin espacios, ej: 083C3BF2)", "WARNING")
+        else:
+            _on_log(
+                f"Direcciones mapa guardadas en disco: Lat {lat_raw.upper()} · Lng {lng_raw.upper()}",
+                "SUCCESS",
+            )
+    elif lat_raw or lng_raw:
+        _on_log("Guardá ambas direcciones Lat y Lng para habilitar la ruta por memoria.", "WARNING")
+    else:
+        _on_log("Coords de mapa por memoria desactivadas (campos vacios)", "INFO")
+    _broadcast_state()
+
+
+@socketio.on("route_add_point")
+def handle_route_add_point(data):
+    ok, err = engine.add_route_point_here(str((data or {}).get("label", "")))
+    if not ok:
+        emit("log", {"msg": err or "No se pudo agregar punto", "level": "WARNING"}, broadcast=True)
+    _broadcast_state()
+
+
+@socketio.on("route_start")
+def handle_route_start():
+    engine.start_route()
+    _broadcast_state()
+
+
+@socketio.on("route_stop")
+def handle_route_stop():
+    engine.stop_route()
+    _broadcast_state()
+
+
+@socketio.on("route_clear")
+def handle_route_clear():
+    engine.clear_route()
+    _broadcast_state()
+
+
+@socketio.on("route_update_config")
+def handle_route_update_config(data):
+    data = data or {}
+    kw = {}
+    if "loop" in data:
+        kw["loop"] = bool(data["loop"])
+    if "landing_wait" in data:
+        kw["landing_wait"] = data["landing_wait"]
+    if "scatter_before_jump" in data:
+        kw["scatter_before_jump"] = data["scatter_before_jump"]
+    if kw:
+        engine.update_route_config(**kw)
+    _broadcast_state()
+
+
+@socketio.on("route_library_save")
+def handle_route_library_save(data):
+    name = str((data or {}).get("name", "")).strip()
+    if not name:
+        _on_log("Escribí un nombre para guardar la ruta.", "WARNING")
+        _broadcast_state()
+        return
+    st = engine.get_route_state()
+    pts = st.get("points") or []
+    if len(pts) < 2:
+        _on_log("La ruta actual necesita al menos 2 puntos para guardarse en disco.", "WARNING")
+        _broadcast_state()
+        return
+    cfg = _snapshot_route_config(st.get("config"))
+    try:
+        route_storage.upsert_route(name, pts, cfg)
+    except ValueError as exc:
+        _on_log(str(exc), "WARNING")
+    else:
+        _on_log(f"Ruta guardada en disco: {name} ({len(pts)} puntos)", "SUCCESS")
+    _broadcast_state()
+
+
+@socketio.on("route_library_load")
+def handle_route_library_load(data):
+    name = str((data or {}).get("name", "")).strip()
+    if not name:
+        _on_log("Seleccioná una ruta guardada.", "WARNING")
+        _broadcast_state()
+        return
+    rec = route_storage.get_route(name)
+    if not rec:
+        _on_log(f"No hay ninguna ruta guardada con el nombre «{name}».", "WARNING")
+        _broadcast_state()
+        return
+    engine.replace_route(rec["points"], rec.get("config"))
+    _broadcast_state()
+
+
+@socketio.on("route_library_delete")
+def handle_route_library_delete(data):
+    name = str((data or {}).get("name", "")).strip()
+    if not name:
+        _broadcast_state()
+        return
+    if route_storage.delete_route(name):
+        _on_log(f"Ruta eliminada del disco: {name}", "INFO")
+    else:
+        _on_log(f"No existe la ruta «{name}».", "WARNING")
+    _broadcast_state()
 
 
 @socketio.on("toggle_bot")

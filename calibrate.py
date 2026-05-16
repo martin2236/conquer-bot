@@ -167,6 +167,50 @@ def find_hsv_range():
     print(f'   }},')
 
 
+def calibrate_inventory_slot():
+    """Selecciona el último slot (esquina sup. izq.) y guarda captura con el slot vacío."""
+    from pathlib import Path
+
+    print("\n📍 MODO: Último slot de inventario")
+    print("   Dejá el slot VACÍO, dibujá solo ese recuadro en la esquina superior izquierda.")
+    print("   ENTER confirma, ESC cancela.\n")
+
+    frame = capture_screen()
+    h, w = frame.shape[:2]
+    scale = min(1.0, 1280 / w)
+    display = cv2.resize(frame, (int(w * scale), int(h * scale)))
+    roi = cv2.selectROI(
+        "Último slot VACÍO — ENTER confirma",
+        display,
+        fromCenter=False,
+        showCrosshair=True,
+    )
+    cv2.destroyAllWindows()
+    if roi[2] <= 0 or roi[3] <= 0:
+        print("  Cancelado.")
+        return
+
+    x = int(roi[0] / scale)
+    y = int(roi[1] / scale)
+    rw = int(roi[2] / scale)
+    rh = int(roi[3] / scale)
+    left = x / w
+    top = y / h
+    pw = rw / w
+    ph = rh / h
+
+    slot = frame[y : y + rh, x : x + rw]
+    out_dir = Path(__file__).resolve().parent / "templates"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "inventory_slot_empty.png"
+    cv2.imwrite(str(out_path), slot)
+
+    print(f"\n✅ Guardado: {out_path}")
+    print("   Copiá en config.py:")
+    print(f"   INVENTORY_LAST_SLOT_REGION_PCT = ({left:.4f}, {top:.4f}, {pw:.4f}, {ph:.4f})")
+    print(f'   INVENTORY_SLOT_EMPTY_TEMPLATE = "templates/inventory_slot_empty.png"')
+
+
 # ── Menú principal ─────────────────────────────────────────────────────────────
 def main():
     print("=" * 55)
@@ -177,6 +221,7 @@ def main():
     print("  [2] Selector de región (game window, HP bar, MP bar)")
     print("  [3] Test de detección de ítems (screenshot anotado)")
     print("  [4] Encontrar rango HSV de un color específico")
+    print("  [5] Último slot de inventario (región + PNG vacío)")
     print("  [0] Salir")
     print()
 
@@ -186,6 +231,7 @@ def main():
         elif choice == "2": capture_region()
         elif choice == "3": test_item_detection()
         elif choice == "4": find_hsv_range()
+        elif choice == "5": calibrate_inventory_slot()
         elif choice == "0": sys.exit(0)
         else: print("  Opción inválida")
         print()
