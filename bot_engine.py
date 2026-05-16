@@ -57,6 +57,7 @@ class BotEngine:
             "hp_percent":    100.0,
             "mp_percent":    100.0,
             "items_detected": 0,
+            "enemies_detected": 0,
         }
 
         # Control de hilos
@@ -111,9 +112,13 @@ class BotEngine:
         self.stats["session_start"] = datetime.now()
         self.log("✅ Bot iniciado")
         self._start_stats_thread()
+        if self._scatter_min_enemies() > 0 and self.vision and not self.vision_enabled:
+            self.vision_enabled = True
         if self.vision and self.vision_enabled:
             self.vision.start()
             self.log("👁  Vision engine iniciado")
+        if not self.auto_skill_enabled:
+            self.toggle_auto_skill(True)
 
     def stop(self):
         """Detiene el bot completo."""
@@ -187,6 +192,28 @@ class BotEngine:
         if self.on_stats_update:
             self.on_stats_update(self.get_stats())
 
+    def _find_game_window(self):
+        title = getattr(config, "GAME_WINDOW_TITLE", "").strip()
+        if not title:
+            return None
+
+        matches = pyautogui.getWindowsWithTitle(title)
+        if not matches:
+            self.log(f"No encuentro una ventana con titulo que contenga '{title}'", "WARNING")
+            return None
+
+        visible = [w for w in matches if not getattr(w, "isMinimized", False)]
+        return visible[0] if visible else matches[0]
+
+    def _window_has_valid_bounds(self, window) -> bool:
+        return (
+            window is not None
+            and getattr(window, "width", 0) > 0
+            and getattr(window, "height", 0) > 0
+            and getattr(window, "left", -50000) > -30000
+            and getattr(window, "top", -50000) > -30000
+        )
+
     def _focus_game_window(self) -> bool:
         """Intenta enfocar la ventana del juego antes de mandar teclas."""
         title = getattr(config, "GAME_WINDOW_TITLE", "").strip()
@@ -195,23 +222,27 @@ class BotEngine:
 
         now = time.time()
         # Solo acelerar si ya tenemos ventana resuelta (evita True falso tras "no hay ventana").
-        if self._game_window is not None and now - self._last_focus_attempt < 1.0:
+        if (
+            self._game_window is not None
+            and self._window_has_valid_bounds(self._game_window)
+            and now - self._last_focus_attempt < 1.0
+        ):
             return True
 
         try:
-            matches = pyautogui.getWindowsWithTitle(title)
-            if not matches:
-                self.log(f"No encuentro una ventana con titulo que contenga '{title}'", "WARNING")
+            window = self._find_game_window()
+            if not window:
                 self._game_window = None
                 self._last_focus_attempt = time.time()
                 return False
 
-            window = matches[0]
             self._game_window = window
             if getattr(window, "isMinimized", False):
                 try:
                     window.restore()
-                    time.sleep(0.1)
+                    time.sleep(0.2)
+                    window = self._find_game_window() or window
+                    self._game_window = window
                 except Exception as e:
                     self.log(f"Aviso al restaurar ventana del juego: {e}", "WARNING")
 
@@ -227,6 +258,12 @@ class BotEngine:
 
             self._last_focus_attempt = time.time()
             time.sleep(0.05)
+            refreshed = self._find_game_window()
+            if refreshed:
+                self._game_window = refreshed
+            if not self._window_has_valid_bounds(self._game_window):
+                self.log("La ventana del juego sigue minimizada o sin coordenadas validas; no hago click.", "WARNING")
+                return False
             return True
         except Exception as e:
             self.log(f"No pude preparar la ventana del juego: {e}", "WARNING")
@@ -238,6 +275,9 @@ class BotEngine:
             return True
         if not self._game_window:
             return True
+        if not self._window_has_valid_bounds(self._game_window):
+            self.log("La ventana del juego no tiene coordenadas validas; no hago click.", "WARNING")
+            return False
 
         x, y = pyautogui.position()
         inside_x = self._game_window.left <= x <= self._game_window.left + self._game_window.width
@@ -261,18 +301,33 @@ class BotEngine:
             time.sleep(delay)
 
         pattern = tuple(getattr(config, "SCATTER_CLICK_PATTERN", ("right",)) or ("right",))
-        button = pattern[self._scatter_click_index % len(pattern)]
+        action = str(pattern[self._scatter_click_index % len(pattern)]).lower().replace(" ", "")
         self._scatter_click_index += 1
+        parts = action.split("+")
+        button = parts[-1]
+        modifiers = parts[:-1]
 
         if button not in {"left", "right", "middle"}:
-            self.log(f"Boton de mouse no valido en SCATTER_CLICK_PATTERN: {button}", "WARNING")
+            self.log(f"Boton de mouse no valido en SCATTER_CLICK_PATTERN: {action}", "WARNING")
+            return None
+        invalid_modifiers = [m for m in modifiers if m not in {"ctrl", "shift", "alt"}]
+        if invalid_modifiers:
+            self.log(f"Modificador no valido en SCATTER_CLICK_PATTERN: {action}", "WARNING")
+            return None
+        if button == "right" and not self._should_cast_scatter():
             return None
 
         if not self._mouse_inside_game_window():
             return None
 
-        pyautogui.click(button=button)
-        return button
+        try:
+            for modifier in modifiers:
+                pyautogui.keyDown(modifier)
+            pyautogui.click(button=button)
+        finally:
+            for modifier in reversed(modifiers):
+                pyautogui.keyUp(modifier)
+        return action
 
     # ------------------------------------------------------------------
     # Bucle de habilidades
@@ -308,9 +363,6 @@ class BotEngine:
                 logged_mode = scatter_only
             try:
                 if scatter_only:
-                    if not self._should_cast_scatter():
-                        time.sleep(0.08)
-                        continue
                     self._use_scatter()
                 else:
                     self._use_next_skill()
@@ -457,8 +509,14 @@ class BotEngine:
 
     # ── Callbacks de visión ────────────────────────────────────────────────
     def _on_item_detected(self, item):
+        if not self.auto_pick_enabled:
+            with self._lock:
+                self.stats["items_detected"] = 0
+            return
         with self._lock:
             self.stats["items_detected"] = 1
+        if not (self.auto_pick_enabled and getattr(config, "LOG_ITEM_DETECTIONS", False)):
+            return
         self.log(f"👁  Ítem detectado: {item.label} en {item.center}")
 
     def _on_low_hp(self, hp: float):
@@ -473,6 +531,8 @@ class BotEngine:
         with self._lock:
             self.stats["hp_percent"] = state.hp_percent
             self.stats["mp_percent"] = state.mp_percent
+            self.stats["items_detected"] = len(state.items_on_ground) if self.auto_pick_enabled else 0
+            self.stats["enemies_detected"] = len(state.enemies_nearby)
         self._emit_stats()
 
     def get_stats(self) -> dict:

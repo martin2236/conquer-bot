@@ -46,6 +46,7 @@ def _current_state() -> dict:
         "skill_keys": config.SKILL_KEYS,
         "skill_interval": config.SKILL_INTERVAL,
         "pick_interval": config.PICK_INTERVAL,
+        "scatter_min_enemies": getattr(config, "SCATTER_MIN_ENEMIES", 0),
         "archer_scatter_only": getattr(config, "ARCHER_SCATTER_ONLY", False),
         "mouse_toggle_bot_button": getattr(config, "MOUSE_TOGGLE_BOT_BUTTON", ""),
     }
@@ -254,14 +255,18 @@ def handle_update_config(data):
     try:
         config.SKILL_INTERVAL = max(0.1, float(data.get("skill_interval", config.SKILL_INTERVAL)))
         config.PICK_INTERVAL = max(0.1, float(data.get("pick_interval", config.PICK_INTERVAL)))
+        config.SCATTER_MIN_ENEMIES = max(0, int(float(data.get("scatter_min_enemies", config.SCATTER_MIN_ENEMIES))))
+        if engine.running and config.SCATTER_MIN_ENEMIES > 0 and not engine.vision_enabled:
+            engine.toggle_vision(True)
         emit(
             "log",
             {
-                "msg": f"Config actualizada: Skill {config.SKILL_INTERVAL}s | Pick {config.PICK_INTERVAL}s",
+                "msg": f"Config actualizada: Skill {config.SKILL_INTERVAL}s | Pick {config.PICK_INTERVAL}s | Mobs {config.SCATTER_MIN_ENEMIES}",
                 "level": "INFO",
             },
             broadcast=True,
         )
+        _broadcast_state()
     except (ValueError, TypeError):
         pass
 

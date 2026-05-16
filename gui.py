@@ -352,6 +352,7 @@ class BotGUI:
         if not self.engine.running:
             self.engine.start()
             self.bot_running_var.set(True)
+            self.auto_skill_var.set(True)
             self.btn_start.config(
                 text="⏹  DETENER BOT",
                 bg=COLORS["red"], fg="#ffffff"

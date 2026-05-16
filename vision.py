@@ -17,6 +17,11 @@ from dataclasses import dataclass, field
 from typing import Optional
 import logging
 
+try:
+    import config
+except ImportError:
+    config = None
+
 logger = logging.getLogger(__name__)
 
 # ── Tipos de datos ─────────────────────────────────────────────────────────────
@@ -221,11 +226,11 @@ class VisionEngine:
 
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if 20 < area < 2000:   # Filtrar ruido y objetos grandes
+                if 80 < area < 2000:   # Filtrar ruido y objetos grandes
                     x, y, w, h = cv2.boundingRect(cnt)
                     # Los textos de ítems suelen ser más anchos que altos
                     aspect_ratio = w / max(h, 1)
-                    if aspect_ratio > 1.5:
+                    if h >= 8 and w >= 18 and aspect_ratio > 1.8 and y < frame.shape[0] * 0.84:
                         items.append(DetectedObject(x=x, y=y, w=w, h=h, label=rarity))
 
         # Ordenar por rareza (épicos primero)
@@ -239,6 +244,7 @@ class VisionEngine:
         En CO los mobs tienen una barra roja pequeña sobre la cabeza.
         """
         enemies = []
+        candidates = []
         frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # Rango de rojo en HSV (dos rangos porque el rojo rodea 0°/180°)
@@ -256,19 +262,78 @@ class VisionEngine:
         mask   = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        frame_h, frame_w = frame.shape[:2]
+        scan_left, scan_top, scan_right, scan_bottom = getattr(
+            config,
+            "ENEMY_SCAN_AREA",
+            (0.0, 0.10, 1.0, 0.84),
+        )
+        min_x = frame_w * float(scan_left)
+        max_x = frame_w * float(scan_right)
+        min_y = frame_h * float(scan_top)
+        max_y = frame_h * float(scan_bottom)
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
             # Las barras de HP de mobs son rectangulares y delgadas
-            if 30 < area < 500:
+            if 30 < area < 1200:
                 x, y, w, h = cv2.boundingRect(cnt)
+                if not (min_x <= x <= max_x and min_y <= y <= max_y):
+                    continue
                 aspect_ratio = w / max(h, 1)
-                if aspect_ratio > 3:   # Muy ancho y delgado → barra de HP
-                    # El cuerpo del mob está debajo de la barra
-                    enemy_y = y + 20
-                    enemies.append(DetectedObject(x=x, y=enemy_y, w=w, h=40, label="enemy"))
+                if 12 <= w <= 140 and 3 <= h <= 22 and aspect_ratio > 2.2:
+                    if self._looks_like_player_hp_bar(frame, x, y, w, h):
+                        continue
+                    candidates.append((x, y, w, h))
+
+        for x, y, w, h in self._merge_enemy_bar_fragments(candidates):
+            enemy_y = y + 20
+            enemies.append(DetectedObject(x=x, y=enemy_y, w=w, h=40, label="enemy"))
 
         return enemies
+
+    def _merge_enemy_bar_fragments(self, bars: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+        groups: list[list[tuple[int, int, int, int]]] = []
+        for bar in sorted(bars, key=lambda r: (r[1], r[0])):
+            x, y, w, h = bar
+            cx = x + w / 2
+            cy = y + h / 2
+            matched = None
+            for group in groups:
+                gx1 = min(r[0] for r in group)
+                gy1 = min(r[1] for r in group)
+                gx2 = max(r[0] + r[2] for r in group)
+                gy2 = max(r[1] + r[3] for r in group)
+                gcx = (gx1 + gx2) / 2
+                gcy = (gy1 + gy2) / 2
+                if abs(cx - gcx) <= 70 and abs(cy - gcy) <= 32:
+                    matched = group
+                    break
+            if matched is None:
+                groups.append([bar])
+            else:
+                matched.append(bar)
+
+        merged = []
+        for group in groups:
+            x1 = min(r[0] for r in group)
+            y1 = min(r[1] for r in group)
+            x2 = max(r[0] + r[2] for r in group)
+            y2 = max(r[1] + r[3] for r in group)
+            merged.append((x1, y1, x2 - x1, y2 - y1))
+        return merged
+
+    def _looks_like_player_hp_bar(self, frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
+        if not config or not getattr(config, "IGNORE_PLAYER_HP_BAR", True):
+            return False
+
+        frame_h, frame_w = frame.shape[:2]
+        center_x = x + (w / 2)
+        center_band = frame_w * float(getattr(config, "PLAYER_HP_BAR_IGNORE_CENTER_X", 0.16))
+        y_min_pct, y_max_pct = getattr(config, "PLAYER_HP_BAR_IGNORE_Y_RANGE", (0.20, 0.55))
+        in_center = abs(center_x - (frame_w / 2)) <= center_band
+        in_player_y = (frame_h * float(y_min_pct)) <= y <= (frame_h * float(y_max_pct))
+        return in_center and in_player_y
 
     # ── Lectura de HP/MP ───────────────────────────────────────────────────────
     def _read_hp_mp(self, frame: np.ndarray) -> tuple:

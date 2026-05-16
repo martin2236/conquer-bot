@@ -301,13 +301,18 @@
           <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:4px;">
             Detecta ítems por color y enemigos por barra HP
           </div>
+          <div class="interval-row">
+            <label>Mobs para usar skill</label>
+            <input type="number" id="scatter-min-enemies" value="5" min="0" max="20" step="1" onchange="updateConfig()" />
+            <span>mobs</span>
+          </div>
         </div>
 
         <!-- Hotkeys -->
         <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border);">
           <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;">HOTKEYS GLOBALES</div>
           <div class="hotkeys">
-            <div class="hk-pill"><span class="hk-key">F9</span><span class="hk-desc">Bot ON/OFF</span></div>
+            <div class="hk-pill"><span class="hk-key">SPACE</span><span class="hk-desc">Bot ON/OFF</span></div>
             <div class="hk-pill"><span class="hk-key">F10</span><span class="hk-desc">Skill</span></div>
             <div class="hk-pill"><span class="hk-key">F11</span><span class="hk-desc">Pick</span></div>
             <div class="hk-pill"><span class="hk-key">F12</span><span class="hk-desc">Emergencia</span></div>
@@ -387,6 +392,10 @@
           <span>👁️ Ítems visibles en pantalla</span>
           <span class="color-green" id="stat-detected">0</span>
         </div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>ðŸ¹ Mobs detectados</span>
+          <span class="color-accent" id="stat-enemies">0</span>
+        </div>
       </div>
     </div>
 
@@ -454,6 +463,10 @@
       if (data.pick_interval !== undefined) {
         const el = document.getElementById('pick-interval');
         if (el) el.value = data.pick_interval;
+      }
+      if (data.scatter_min_enemies !== undefined) {
+        const el = document.getElementById('scatter-min-enemies');
+        if (el) el.value = data.scatter_min_enemies;
       }
       if (data.archer_scatter_only !== undefined) {
         const el = document.getElementById('chk-archer-scatter');
@@ -540,6 +553,7 @@
     socket.emit('update_config', {
       skill_interval: parseFloat(document.getElementById('skill-interval').value),
       pick_interval:  parseFloat(document.getElementById('pick-interval').value),
+      scatter_min_enemies: parseInt(document.getElementById('scatter-min-enemies').value || '0', 10),
     });
   }
 
@@ -572,6 +586,8 @@
       document.getElementById('stat-picks').textContent = data.items_picked;
     if (data.items_detected !== undefined)
       document.getElementById('stat-detected').textContent = data.items_detected;
+    if (data.enemies_detected !== undefined)
+      document.getElementById('stat-enemies').textContent = data.enemies_detected;
     if (data.hp_percent !== undefined) {
       const hp = data.hp_percent;
       document.getElementById('hp-bar').style.width  = hp + '%';
