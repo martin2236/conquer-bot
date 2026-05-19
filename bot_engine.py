@@ -455,6 +455,74 @@ class BotEngine:
         self._emit_route_update()
         return True, ""
 
+    def record_bounce_route_from_cursor(self) -> tuple[bool, str]:
+        """
+        Crea una ruta basica de 2 puntos: ida al cursor actual y vuelta al punto opuesto.
+        Usa el centro de la ventana del juego como referencia aproximada del personaje.
+        """
+        if not self.route_memory_ready():
+            return False, "Configura Lat y Lng en memoria (CE) y guarda antes de grabar ruta."
+
+        proc = getattr(config, "GAME_PROCESS_NAME", "").strip()
+        lx = getattr(config, "MEMORY_LAT_ADDRESS_HEX", "").strip()
+        ly = getattr(config, "MEMORY_LNG_ADDRESS_HEX", "").strip()
+        if not game_memory or not proc:
+            return False, "game_memory o proceso no disponible"
+
+        window = self._game_window if self._window_has_valid_bounds(self._game_window) else self._find_game_window()
+        if not self._window_has_valid_bounds(window):
+            return False, "No encuentro la ventana del juego para calcular el centro."
+        self._game_window = window
+
+        ax = game_memory.parse_hex_address(lx)
+        ay = game_memory.parse_hex_address(ly)
+        gx, e1 = game_memory.read_uint16_at(proc, ax)
+        gy, e2 = game_memory.read_uint16_at(proc, ay)
+        if e1 or e2:
+            return False, (e1 or e2 or "No se leyeron coords")
+
+        mouse_x, mouse_y = pyautogui.position()
+        center_x = int(window.left + window.width / 2)
+        center_y = int(window.top + window.height / 2)
+        dx = int(mouse_x - center_x)
+        dy = int(mouse_y - center_y)
+        if abs(dx) < 8 and abs(dy) < 8:
+            return False, "El puntero esta demasiado cerca del personaje; apunta al destino antes de grabar."
+
+        out_x = center_x + dx
+        out_y = center_y + dy
+        back_x = center_x - dx
+        back_y = center_y - dy
+
+        with self._route_lock:
+            self.route_points = [
+                {
+                    "label": "Origen / vuelta",
+                    "game_x": int(gx),
+                    "game_y": int(gy),
+                    "screen_x": int(back_x),
+                    "screen_y": int(back_y),
+                },
+                {
+                    "label": "Ida",
+                    "game_x": int(gx),
+                    "game_y": int(gy),
+                    "screen_x": int(out_x),
+                    "screen_y": int(out_y),
+                },
+            ]
+            self.route_config["current_index"] = 0
+            self.route_config["loop"] = True
+            self.route_config["running"] = False
+
+        self.log(
+            f"Ruta ida/vuelta grabada: origen mapa ({gx},{gy}) "
+            f"ida pantalla ({out_x},{out_y}) vuelta ({back_x},{back_y})",
+            "SUCCESS",
+        )
+        self._emit_route_update()
+        return True, ""
+
     def stop_route(self):
         self._route_stop.set()
         with self._route_lock:

@@ -124,6 +124,7 @@ HOTKEY_TOGGLE_BOT    = "space"   # Activar/desactivar bot completo
 HOTKEY_TOGGLE_SKILL  = "F10"  # Activar/desactivar auto skill
 HOTKEY_TOGGLE_PICK   = "F11"  # Activar/desactivar auto pick
 HOTKEY_EMERGENCY_OFF = "F12"  # Apagado de emergencia
+HOTKEY_RECORD_BOUNCE_ROUTE = "num 1"  # Grabar ruta simple ida/vuelta desde el puntero actual
 MOUSE_TOGGLE_BOT_BUTTON = "x1"  # "x1", "x2" o "" para desactivar
 
 # --- Seguridad ---

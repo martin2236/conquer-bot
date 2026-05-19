@@ -140,6 +140,13 @@ def _set_auto_pick(enabled: bool, interval=None):
     _broadcast_state()
 
 
+def _record_bounce_route():
+    ok, err = engine.record_bounce_route_from_cursor()
+    if not ok:
+        _on_log(err or "No se pudo grabar la ruta ida/vuelta", "WARNING")
+    _broadcast_state()
+
+
 def _normalize_mouse_button(value) -> str:
     if not value:
         return ""
@@ -202,9 +209,13 @@ def _register_hotkeys():
             lambda: _set_auto_pick(not engine.auto_pick_enabled),
         )
         keyboard.add_hotkey(config.HOTKEY_EMERGENCY_OFF, lambda: _set_bot_running(False))
+        keyboard.add_hotkey(
+            getattr(config, "HOTKEY_RECORD_BOUNCE_ROUTE", "num 1"),
+            _record_bounce_route,
+        )
         _hotkeys_registered = True
         _on_log(
-            f"Hotkeys activas: {config.HOTKEY_TOGGLE_BOT} Bot | {config.HOTKEY_TOGGLE_SKILL} Skill | {config.HOTKEY_TOGGLE_PICK} Pick | {config.HOTKEY_EMERGENCY_OFF} Emergencia",
+            f"Hotkeys activas: {config.HOTKEY_TOGGLE_BOT} Bot | {config.HOTKEY_TOGGLE_SKILL} Skill | {config.HOTKEY_TOGGLE_PICK} Pick | {config.HOTKEY_EMERGENCY_OFF} Emergencia | {getattr(config, 'HOTKEY_RECORD_BOUNCE_ROUTE', 'num 1')} Ruta ida/vuelta",
             "SUCCESS",
         )
     except Exception as exc:
@@ -278,6 +289,11 @@ def handle_route_add_point(data):
     if not ok:
         emit("log", {"msg": err or "No se pudo agregar punto", "level": "WARNING"}, broadcast=True)
     _broadcast_state()
+
+
+@socketio.on("route_record_bounce")
+def handle_route_record_bounce():
+    _record_bounce_route()
 
 
 @socketio.on("route_start")

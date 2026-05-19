@@ -403,7 +403,7 @@
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">RUTA · CTRL+CLIC</div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding-left:2px;">
-            Ubicá el cursor sobre cada destino en el mapa y agregá puntos en orden. Sin Lat/Lng guardados no se puede trazar la ruta.
+            Ubicá el cursor sobre cada destino en el mapa y agregá puntos en orden. Para ida/vuelta, apuntá al destino y presioná Num 1 sin salir del juego.
           </div>
           <div class="toggle-row" style="padding:6px 0;">
             <span style="font-size:13px;font-weight:600;">Repetir en bucle</span>
@@ -429,6 +429,7 @@
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
             <button type="button" class="route-btn primary" id="btn-route-add" onclick="routeAddPoint()">Agregar punto aquí</button>
+            <button type="button" class="route-btn" id="btn-route-bounce" onclick="routeRecordBounce()">Grabar ida/vuelta</button>
             <button type="button" class="route-btn primary" id="btn-route-start" onclick="routeStart()" disabled>Iniciar ruta</button>
             <button type="button" class="route-btn" id="btn-route-stop" onclick="routeStop()" disabled>Detener ruta</button>
             <button type="button" class="route-btn" onclick="routeClear()">Vaciar ruta</button>
@@ -660,6 +661,10 @@
     socket.emit('route_add_point', { label: lab ? lab.value.trim() : '' });
   }
 
+  function routeRecordBounce() {
+    socket.emit('route_record_bounce');
+  }
+
   function routeStart() {
     socket.emit('route_start');
   }
@@ -717,7 +722,7 @@
     const el = document.getElementById('route-coords-status');
     if (!el) return;
     el.textContent = routeMemoryReady
-      ? 'Memoria de mapa lista. Agregá puntos con el cursor sobre cada destino.'
+      ? 'Memoria de mapa lista. Num 1 graba ida/vuelta desde el puntero actual.'
       : 'Guardá Lat y Lng válidos para habilitar puntos de ruta e «Iniciar ruta».';
   }
 
@@ -747,9 +752,11 @@
     }
 
     const btnAdd = document.getElementById('btn-route-add');
+    const btnBounce = document.getElementById('btn-route-bounce');
     const btnStart = document.getElementById('btn-route-start');
     const btnStop = document.getElementById('btn-route-stop');
     if (btnAdd) btnAdd.disabled = !routeMemoryReady;
+    if (btnBounce) btnBounce.disabled = !routeMemoryReady;
     if (btnStart) btnStart.disabled = !routeMemoryReady || pts.length < 2 || !!cfg.running;
     if (btnStop) btnStop.disabled = !cfg.running;
     routeRunning = !!cfg.running;
