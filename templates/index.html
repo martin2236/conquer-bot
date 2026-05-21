@@ -251,7 +251,8 @@
       gap: 8px;
       align-items: center;
     }
-    .route-memory-row input[type="text"] {
+    .route-memory-row input[type="text"],
+    .route-memory-row select {
       flex: 1;
       min-width: 120px;
       padding: 8px;
@@ -263,7 +264,8 @@
       font-size: 12px;
       outline: none;
     }
-    .route-memory-row input[type="text"]:focus { border-color: var(--accent); }
+    .route-memory-row input[type="text"]:focus,
+    .route-memory-row select:focus { border-color: var(--accent); }
     #route-points-list {
       list-style: decimal;
       padding-left: 22px;
@@ -420,6 +422,20 @@
           </div>
 
         <div style="margin-top:16px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">FARMEO · ZONA OBJETIVO</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding-left:2px;">
+            Elegí el mob/zona para que el watchdog intente volver ahí si el personaje queda quieto.
+          </div>
+          <div class="route-memory-row">
+            <select id="farm-scenario-select" onchange="renderFarmMobSelect(true)"></select>
+            <select id="farm-mob-select"></select>
+            <button type="button" class="route-btn primary" onclick="setFarmTarget()">Usar zona</button>
+            <button type="button" class="route-btn" onclick="clearFarmTarget()">Limpiar</button>
+          </div>
+          <div style="font-size:11px;color:var(--orange);margin-top:6px;padding-left:2px;min-height:16px;" id="farm-target-status">Sin zona de farmeo</div>
+        </div>
+
+        <div style="margin-top:16px;">
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">MEMORIA · FLECHAS</div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding-left:2px;">
             Dirección <strong>hex</strong> desde Cheat Engine (tipo <strong>2 Bytes</strong>). Si reiniciás el cliente, volvé a escanear y pegá la nueva dirección.
@@ -466,6 +482,18 @@
             <label>Scatter antes de saltar</label>
             <input type="number" id="route-scatter-count" value="1" min="0" max="5" step="1" onchange="emitRouteConfig()" />
             <span>×</span>
+          </div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;">SALTO Â· PUNTOS CALIBRADOS</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding-left:2px;">
+              ApuntÃ¡ el mouse a un borde seguro del mapa y presionÃ¡ Num 2. Se guarda relativo al centro de la ventana.
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="route-btn primary" onclick="jumpPointRecord()">Guardar punto</button>
+              <button type="button" class="route-btn" onclick="jumpPointsClear()">Limpiar puntos</button>
+              <span style="font-size:12px;color:var(--muted);">Puntos: <strong id="jump-points-count" class="color-accent">0</strong></span>
+            </div>
+            <pre id="jump-points-list" style="margin-top:8px;max-height:70px;overflow:auto;font-size:10px;line-height:1.35;color:var(--muted);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
           </div>
           <div class="interval-row" style="margin-top:8px;">
             <label style="flex:1;">Etiqueta (opcional)</label>
@@ -598,82 +626,56 @@
         </div>
         <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-arrows-err"></div>
         <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>🗺️ Mapa X (memoria)</span>
-          <span class="color-accent" id="stat-map-x">—</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>🗺️ Mapa Y (memoria)</span>
-          <span class="color-accent" id="stat-map-y">—</span>
+          <span>Mapa X/Y</span>
+          <span class="color-accent"><span id="stat-map-x">—</span>, <span id="stat-map-y">—</span></span>
         </div>
         <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-map-err"></div>
         <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Player ID (memoria)</span>
-          <span class="color-yellow" id="stat-player-id">—</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Player ID addr</span>
-          <span class="color-accent" id="stat-player-id-addr">—</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Player base</span>
-          <span class="color-accent" id="stat-player-base">—</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
-          <span>Pointer source</span>
-          <span class="color-accent" id="stat-player-pointer-source" style="text-align:right;word-break:break-all;">—</span>
-        </div>
-        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
-          <span>CRoleMgr</span>
-          <span class="color-accent" id="stat-coclassic-role-mgr" style="text-align:right;word-break:break-all;">-</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
-          <span>CHero</span>
-          <span class="color-accent" id="stat-coclassic-hero" style="text-align:right;word-break:break-all;">-</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>CHero nombre</span>
+          <span>Personaje</span>
           <span class="color-green" id="stat-coclassic-hero-name">-</span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>CHero ID</span>
-          <span class="color-yellow" id="stat-coclassic-hero-id">-</span>
+          <span>Coords / estado</span>
+          <span><span class="color-accent" id="stat-coclassic-hero-xy">-</span> · <span class="color-yellow" id="stat-coclassic-hero-flags">-</span></span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>CHero X/Y</span>
-          <span class="color-accent" id="stat-coclassic-hero-xy">-</span>
+          <span>HP max / Stamina</span>
+          <span class="color-accent" id="stat-coclassic-hero-stats">-</span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Role deque size</span>
-          <span class="color-accent" id="stat-coclassic-deque-size">-</span>
-        </div>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Roles leidos</span>
-          <span class="color-accent" id="stat-coclassic-roles-read">0</span>
-        </div>
-        <pre id="stat-coclassic-roles-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--muted);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
-        <pre id="stat-coclassic-deque-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--orange);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
-        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Mobs cerca memoria</span>
-          <span class="color-accent" id="stat-memory-entities">0</span>
+          <span>Bolsa</span>
+          <span class="color-yellow" id="stat-coclassic-bag">-</span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
           <span>Mob objetivo</span>
           <span class="color-green" id="stat-memory-target" style="text-align:right;word-break:break-all;">-</span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>Mobs total memoria</span>
-          <span class="color-accent" id="stat-memory-entities-total">0</span>
+          <span>Mobs memoria</span>
+          <span><span class="color-accent" id="stat-memory-entities">0</span> cerca / <span class="color-accent" id="stat-memory-entities-total">0</span> total</span>
         </div>
         <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
           <span>Drops por memoria</span>
           <span class="color-green" id="stat-memory-drops">0</span>
         </div>
         <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-memory-state-err"></div>
-        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
-          <span>🎒 Inventario (último slot)</span>
-          <span class="color-yellow" id="stat-inventory">—</span>
-        </div>
-        <div style="margin-top:4px;font-size:10px;color:var(--muted);min-height:14px;" id="stat-inventory-detail"></div>
+        <details style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
+          <summary style="cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;">Debug memoria</summary>
+          <div style="margin-top:8px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:11px;color:var(--muted);">
+            <span>Player ID</span><span class="color-yellow" id="stat-player-id">—</span>
+            <span>Player ID addr</span><span class="color-accent" id="stat-player-id-addr">—</span>
+            <span>Player base</span><span class="color-accent" id="stat-player-base">—</span>
+            <span>Pointer source</span><span class="color-accent" id="stat-player-pointer-source" style="text-align:right;word-break:break-all;">—</span>
+            <span>CRoleMgr</span><span class="color-accent" id="stat-coclassic-role-mgr" style="text-align:right;word-break:break-all;">-</span>
+            <span>CHero</span><span class="color-accent" id="stat-coclassic-hero" style="text-align:right;word-break:break-all;">-</span>
+            <span>CHero ID</span><span class="color-yellow" id="stat-coclassic-hero-id">-</span>
+            <span>Flechas raw</span><span class="color-yellow" id="stat-coclassic-arrows">-</span>
+            <span>Role deque size</span><span class="color-accent" id="stat-coclassic-deque-size">-</span>
+            <span>Roles leidos</span><span class="color-accent" id="stat-coclassic-roles-read">0</span>
+          </div>
+          <pre id="stat-coclassic-roles-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--muted);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
+          <pre id="stat-coclassic-deque-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--orange);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
+        </details>
       </div>
     </div>
 
@@ -700,6 +702,9 @@
   let routeMemoryReady = false;
   let routeRunning = false;
   let botMode = 'assisted';
+  let farmScenarios = [];
+  let farmScenarioSignature = '';
+  let farmTarget = null;
 
   function syncSkillCheckboxes(checked) {
     ['chk-skill', 'chk-skill-auto'].forEach((id) => {
@@ -719,6 +724,67 @@
   function setInputValueIfIdle(id, value) {
     const el = document.getElementById(id);
     if (el && document.activeElement !== el) el.value = value;
+  }
+
+  function renderFarmScenarioSelect() {
+    const scenarioSelect = document.getElementById('farm-scenario-select');
+    if (!scenarioSelect) return;
+    const selected = scenarioSelect.value;
+    scenarioSelect.innerHTML = '';
+    farmScenarios.forEach((scenario) => {
+      const opt = document.createElement('option');
+      opt.value = scenario.name || '';
+      opt.textContent = `${scenario.name || 'Zona'} (${scenario.recommendedLevel || 'nivel ?'})`;
+      scenarioSelect.appendChild(opt);
+    });
+    if (selected && farmScenarios.some((s) => s.name === selected)) {
+      scenarioSelect.value = selected;
+    }
+    renderFarmMobSelect();
+  }
+
+  function renderFarmMobSelect(resetSelection = false) {
+    const scenarioSelect = document.getElementById('farm-scenario-select');
+    const mobSelect = document.getElementById('farm-mob-select');
+    if (!scenarioSelect || !mobSelect) return;
+    const selected = resetSelection ? '' : mobSelect.value;
+    const scenario = farmScenarios.find((s) => s.name === scenarioSelect.value) || farmScenarios[0];
+    mobSelect.innerHTML = '';
+    (scenario?.mobs || []).forEach((mob, index) => {
+      const opt = document.createElement('option');
+      const coords = Array.isArray(mob.coords) ? `@ ${mob.coords[0]},${mob.coords[1]}` : 'sin coords';
+      opt.value = String(index);
+      opt.textContent = `${mob.name || 'Mob'} Lv${mob.level || '?'} · ${coords}`;
+      opt.disabled = !Array.isArray(mob.coords);
+      mobSelect.appendChild(opt);
+    });
+    if (selected && Array.from(mobSelect.options).some((opt) => opt.value === selected && !opt.disabled)) {
+      mobSelect.value = selected;
+    }
+  }
+
+  function renderFarmTargetStatus() {
+    const status = document.getElementById('farm-target-status');
+    if (!status) return;
+    if (!farmTarget || !Array.isArray(farmTarget.coords)) {
+      status.textContent = 'Sin zona de farmeo';
+      return;
+    }
+    status.textContent = `Zona activa: ${farmTarget.scenario || 'Mapa'} / ${farmTarget.name || 'Mob'} @ ${farmTarget.coords[0]},${farmTarget.coords[1]}`;
+  }
+
+  function setFarmTarget() {
+    const scenarioSelect = document.getElementById('farm-scenario-select');
+    const mobSelect = document.getElementById('farm-mob-select');
+    if (!scenarioSelect || !mobSelect) return;
+    socket.emit('farm_target_set', {
+      scenario: scenarioSelect.value,
+      mob_index: parseInt(mobSelect.value || '-1', 10),
+    });
+  }
+
+  function clearFarmTarget() {
+    socket.emit('farm_target_clear');
   }
 
   function getSkillInterval() {
@@ -776,6 +842,14 @@
 
   function routeRecordBounce() {
     socket.emit('route_record_bounce');
+  }
+
+  function jumpPointRecord() {
+    socket.emit('jump_point_record');
+  }
+
+  function jumpPointsClear() {
+    socket.emit('jump_points_clear');
   }
 
   function routeStart() {
@@ -971,6 +1045,28 @@
       if (data.saved_routes !== undefined) {
         renderSavedRoutesList(data.saved_routes);
       }
+      if (data.jump_points !== undefined) {
+        const count = document.getElementById('jump-points-count');
+        const list = document.getElementById('jump-points-list');
+        const pts = data.jump_points || [];
+        if (count) count.textContent = String(pts.length);
+        if (list) {
+          list.textContent = pts.map((p) => `${p.label || p.id}: dx=${p.dx} dy=${p.dy}`).join('\n');
+        }
+      }
+      if (data.farm_scenarios !== undefined) {
+        const nextScenarios = data.farm_scenarios || [];
+        const nextSignature = JSON.stringify(nextScenarios);
+        if (nextSignature !== farmScenarioSignature) {
+          farmScenarios = nextScenarios;
+          farmScenarioSignature = nextSignature;
+          renderFarmScenarioSelect();
+        }
+      }
+      if (data.farm_target !== undefined) {
+        farmTarget = data.farm_target || null;
+        renderFarmTargetStatus();
+      }
       if (data.game_process_name !== undefined) {
         const hint = document.getElementById('memory-process-hint');
         if (hint) hint.textContent = 'Proceso: ' + (data.game_process_name || '—') + ' · ejecutá el bot como admin si CE también lo necesita.';
@@ -1105,9 +1201,13 @@
     }
     const ar = document.getElementById('stat-arrows');
     const arErr = document.getElementById('stat-arrows-err');
-    if (ar && data.arrows_memory !== undefined) {
-      ar.textContent =
-        data.arrows_memory === null || data.arrows_memory === undefined ? '—' : String(data.arrows_memory);
+    if (ar && (data.arrows_memory !== undefined || data.coclassic_arrow_equipped !== undefined)) {
+      if (data.coclassic_arrow_equipped !== null && data.coclassic_arrow_equipped !== undefined) {
+        ar.textContent = `${data.coclassic_arrow_equipped} (${data.coclassic_arrow_packs || 0} packs)`;
+      } else {
+        ar.textContent =
+          data.arrows_memory === null || data.arrows_memory === undefined ? '—' : String(data.arrows_memory);
+      }
     }
     if (arErr && data.arrows_memory_err !== undefined) {
       arErr.textContent = data.arrows_memory_err || '';
@@ -1135,6 +1235,10 @@
     const coHeroName = document.getElementById('stat-coclassic-hero-name');
     const coHeroId = document.getElementById('stat-coclassic-hero-id');
     const coHeroXy = document.getElementById('stat-coclassic-hero-xy');
+    const coHeroFlags = document.getElementById('stat-coclassic-hero-flags');
+    const coHeroStats = document.getElementById('stat-coclassic-hero-stats');
+    const coBag = document.getElementById('stat-coclassic-bag');
+    const coArrows = document.getElementById('stat-coclassic-arrows');
     const coDequeSize = document.getElementById('stat-coclassic-deque-size');
     const coRolesRead = document.getElementById('stat-coclassic-roles-read');
     const coRolesDebug = document.getElementById('stat-coclassic-roles-debug');
@@ -1174,6 +1278,30 @@
       const hx = data.coclassic_hero_x;
       const hy = data.coclassic_hero_y;
       coHeroXy.textContent = (hx === null || hx === undefined || hy === null || hy === undefined) ? '-' : `${hx}, ${hy}`;
+    }
+    if (coHeroFlags && (data.coclassic_hero_dead !== undefined || data.coclassic_hero_xp_ready !== undefined)) {
+      const flags = [];
+      if (data.coclassic_hero_dead) flags.push('MUERTO');
+      if (data.coclassic_hero_xp_ready) flags.push('XP lista');
+      coHeroFlags.textContent = flags.length ? flags.join(' · ') : 'normal';
+      coHeroFlags.style.color = data.coclassic_hero_dead ? 'var(--red)' : (data.coclassic_hero_xp_ready ? 'var(--green)' : 'var(--muted)');
+    }
+    if (coHeroStats && (data.coclassic_hero_max_hp !== undefined || data.coclassic_hero_stamina !== undefined)) {
+      const maxHp = data.coclassic_hero_max_hp ?? '-';
+      const sta = data.coclassic_hero_stamina ?? '-';
+      const maxSta = data.coclassic_hero_max_stamina ?? '-';
+      coHeroStats.textContent = `${maxHp} HP / ${sta}/${maxSta}`;
+    }
+    if (coBag && data.coclassic_bag_count !== undefined) {
+      const count = data.coclassic_bag_count;
+      const full = !!data.coclassic_bag_full;
+      coBag.textContent = count === null || count === undefined ? '-' : `${count}/40${full ? ' LLENO' : ''}`;
+      coBag.style.color = full ? 'var(--red)' : 'var(--green)';
+    }
+    if (coArrows && (data.coclassic_arrow_equipped !== undefined || data.coclassic_arrow_packs !== undefined)) {
+      const equipped = data.coclassic_arrow_equipped ?? '-';
+      const packs = data.coclassic_arrow_packs ?? 0;
+      coArrows.textContent = `${equipped} equip · ${packs} packs`;
     }
     if (coDequeSize && data.coclassic_deque_size !== undefined) {
       coDequeSize.textContent =
@@ -1221,22 +1349,6 @@
     }
     if (memErr && data.memory_state_err !== undefined) {
       memErr.textContent = data.memory_state_err || '';
-    }
-    const inv = document.getElementById('stat-inventory');
-    const invD = document.getElementById('stat-inventory-detail');
-    if (inv && data.inventory_full !== undefined) {
-      if (data.inventory_full === null || data.inventory_full === undefined) {
-        inv.textContent = '—';
-      } else if (data.inventory_full) {
-        inv.textContent = 'LLENO';
-        inv.style.color = 'var(--red)';
-      } else {
-        inv.textContent = 'OK';
-        inv.style.color = 'var(--green)';
-      }
-    }
-    if (invD && data.inventory_check_err !== undefined) {
-      invD.textContent = data.inventory_check_err || '';
     }
   }
 </script>

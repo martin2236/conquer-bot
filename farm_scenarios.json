@@ -1,0 +1,94 @@
+{
+  "scenarios": [
+    {
+      "name": "WindPlain",
+      "mapId": 1002,
+      "recommendedLevel": "1-25",
+      "mobs": [
+        {"name": "Pheasant", "level": 1, "type": "melee", "coords": [388, 444]},
+        {"name": "FlyingRooster", "level": 3, "type": "melee", "coords": [388, 444]},
+        {"name": "Turtledove", "level": 7, "type": "melee", "coords": [552, 474]},
+        {"name": "BlueCooer", "level": 10, "type": "magic", "coords": [388, 444]},
+        {"name": "Robin", "level": 12, "type": "melee", "coords": [418, 682]},
+        {"name": "GameBird", "level": 15, "type": "magic", "coords": [418, 682]},
+        {"name": "Apparition", "level": 17, "type": "ghost", "coords": [242, 558]},
+        {"name": "WarGhost", "level": 20, "type": "ghost", "coords": [98, 325]},
+        {"name": "Poltergeist", "level": 22, "type": "magic", "coords": [242, 558]},
+        {"name": "HeavyGhost", "level": 23, "type": "melee", "coords": [98, 325]},
+        {"name": "BattleGhost", "level": 25, "type": "magic", "coords": [98, 325]}
+      ]
+    },
+    {
+      "name": "MapleForest",
+      "mapId": 1011,
+      "recommendedLevel": "25-50",
+      "mobs": [
+        {"name": "WingedSnake", "level": 27, "type": "melee", "coords": [317, 77]},
+        {"name": "FireSnake", "level": 30, "type": "fire", "coords": [317, 77]},
+        {"name": "Bandit", "level": 32, "type": "melee", "coords": [328, 227]},
+        {"name": "Cateran", "level": 35, "type": "melee", "coords": [328, 227]},
+        {"name": "FireRat", "level": 37, "type": "fire", "coords": [538, 272]},
+        {"name": "BlueElf", "level": 40, "type": "magic", "coords": [538, 272]},
+        {"name": "FireSpirit", "level": 42, "type": "fire", "coords": [538, 272]},
+        {"name": "ElfKing", "level": 45, "type": "boss", "coords": [532, 768]}
+      ]
+    },
+    {
+      "name": "ApeMountain",
+      "mapId": 1020,
+      "recommendedLevel": "40-70",
+      "mobs": [
+        {"name": "Macaque", "level": 43, "type": "melee"},
+        {"name": "Snakeman", "level": 48, "type": "melee"},
+        {"name": "SandMonster", "level": 50, "type": "earth"},
+        {"name": "HillMonster", "level": 55, "type": "earth"},
+        {"name": "RockMonster", "level": 60, "type": "tank"}
+      ]
+    },
+    {
+      "name": "DesertCity",
+      "mapId": 1000,
+      "recommendedLevel": "70-100",
+      "mobs": [
+        {"name": "SandElf", "level": 73, "type": "magic"},
+        {"name": "BladeGhost", "level": 78, "type": "ghost"},
+        {"name": "BloodyBat", "level": 83, "type": "flying"},
+        {"name": "RedDevil", "level": 85, "type": "demon"}
+      ]
+    },
+    {
+      "name": "BirdIsland",
+      "mapId": 1015,
+      "recommendedLevel": "85-110",
+      "mobs": [
+        {"name": "Birdman", "level": 87, "type": "flying", "coords": [812, 548]},
+        {"name": "BirdKing", "level": 90, "type": "boss", "coords": [812, 548]},
+        {"name": "HawkKing", "level": 92, "type": "flying", "coords": [451, 676]},
+        {"name": "SilverHawk", "level": 95, "type": "flying", "coords": [451, 676]},
+        {"name": "Bandit", "level": 97, "type": "melee", "coords": [362, 479]},
+        {"name": "Banditti", "level": 98, "type": "boss", "coords": [309, 597]},
+        {"name": "Robber", "level": 100, "type": "melee", "coords": [309, 597]},
+        {"name": "SeniorBandit", "level": 103, "type": "boss", "coords": [362, 479]}
+      ]
+    },
+    {
+      "name": "PhoenixCastle",
+      "mapId": 1011,
+      "recommendedLevel": "15-40",
+      "mobs": [
+        {"name": "Ratling", "level": 15, "type": "melee"},
+        {"name": "Macaque", "level": 20, "type": "melee"},
+        {"name": "Zombie", "level": 24, "type": "undead"}
+      ]
+    },
+    {
+      "name": "MineCave",
+      "mapId": 1025,
+      "recommendedLevel": "15-70",
+      "mobs": [
+        {"name": "RockMonster", "level": 15, "type": "tank"},
+        {"name": "RockMonster", "level": 42, "type": "tank"}
+      ]
+    }
+  ]
+}

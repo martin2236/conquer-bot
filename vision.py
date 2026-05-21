@@ -48,6 +48,8 @@ class GameState:
     mp_percent: float      = 100.0   # 0-100
     items_on_ground: list  = field(default_factory=list)   # [DetectedObject]
     enemies_nearby: list   = field(default_factory=list)   # [DetectedObject]
+    dragonball_alert: bool = False
+    dragonball_alert_confidence: float = 0.0
     player_moving: bool    = False
     last_update: float     = 0.0
 
@@ -99,6 +101,7 @@ class VisionEngine:
 
         # Templates cargados (nombre → imagen numpy)
         self._templates: dict = {}
+        self._dragonball_template = None
 
         # Rareza mínima a detectar
         self.min_rarity = "uncommon"
@@ -107,6 +110,7 @@ class VisionEngine:
         self.on_state_update = None   # fn(GameState)
         self.on_item_found   = None   # fn(DetectedObject)
         self.on_low_hp       = None   # fn(float)
+        self.on_dragonball_alert = None   # fn(float)
         self.hp_alert_threshold = 50  # % de HP para alertar
 
     # ── API pública ────────────────────────────────────────────────────────────
@@ -129,6 +133,8 @@ class VisionEngine:
                 mp_percent      = self.state.mp_percent,
                 items_on_ground = list(self.state.items_on_ground),
                 enemies_nearby  = list(self.state.enemies_nearby),
+                dragonball_alert = self.state.dragonball_alert,
+                dragonball_alert_confidence = self.state.dragonball_alert_confidence,
                 player_moving   = self.state.player_moving,
                 last_update     = self.state.last_update,
             )
@@ -157,11 +163,14 @@ class VisionEngine:
                 if frame is not None:
                     items   = self._detect_items(frame)
                     enemies = self._detect_enemies(frame)
+                    dragonball_alert, dragonball_confidence = self._detect_dragonball_chat_alert(frame)
                     hp, mp = self._read_hp_mp(frame)
 
                     with self._lock:
                         self.state.items_on_ground = items
                         self.state.enemies_nearby  = enemies
+                        self.state.dragonball_alert = dragonball_alert
+                        self.state.dragonball_alert_confidence = dragonball_confidence
                         self.state.hp_percent      = hp
                         self.state.mp_percent      = mp
                         self.state.last_update     = time.time()
@@ -169,6 +178,9 @@ class VisionEngine:
                     # Callbacks
                     if items and self.on_item_found:
                         self.on_item_found(items[0])   # primer ítem detectado
+
+                    if dragonball_alert and self.on_dragonball_alert:
+                        self.on_dragonball_alert(dragonball_confidence)
 
                     hp_alerts = (
                         config
@@ -411,6 +423,51 @@ class VisionEngine:
         return None
 
     # ── Debug: guardar frame anotado ───────────────────────────────────────────
+    def _dragonball_chat_template(self):
+        if self._dragonball_template is not None:
+            return self._dragonball_template
+        if not config or not getattr(config, "DRAGON_BALL_ALERT_ENABLED", True):
+            return None
+
+        path_value = str(getattr(config, "DRAGON_BALL_CHAT_TEMPLATE", "") or "")
+        if not path_value:
+            return None
+        path = Path(path_value)
+        if not path.is_file():
+            path = Path(__file__).resolve().parent / path_value
+        if not path.is_file():
+            return None
+
+        tmpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if tmpl is None or tmpl.size == 0:
+            return None
+        self._dragonball_template = cv2.cvtColor(tmpl, cv2.COLOR_BGR2GRAY)
+        return self._dragonball_template
+
+    def _detect_dragonball_chat_alert(self, frame: np.ndarray) -> tuple[bool, float]:
+        if not config or not getattr(config, "DRAGON_BALL_ALERT_ENABLED", True):
+            return False, 0.0
+        tmpl = self._dragonball_chat_template()
+        if tmpl is None:
+            return False, 0.0
+
+        h, w = frame.shape[:2]
+        area = getattr(config, "DRAGON_BALL_CHAT_SCAN_AREA", (0.0, 0.0, 0.75, 0.22))
+        left, top, right, bottom = [float(v) for v in area]
+        x1 = max(0, int(w * left))
+        y1 = max(0, int(h * top))
+        x2 = min(w, int(w * right))
+        y2 = min(h, int(h * bottom))
+        roi = frame[y1:y2, x1:x2]
+        if roi.size == 0 or roi.shape[0] < tmpl.shape[0] or roi.shape[1] < tmpl.shape[1]:
+            return False, 0.0
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
+        confidence = float(res.max()) if res.size else 0.0
+        threshold = float(getattr(config, "DRAGON_BALL_CHAT_MATCH_THRESHOLD", 0.78) or 0.78)
+        return confidence >= threshold, confidence
+
     def save_inventory_slot_debug(self, path: str = "debug_inventory_slot.png") -> Optional[str]:
         """Guarda el recorte del último slot y el resultado de la detección (calibración)."""
         frame = self._capture()

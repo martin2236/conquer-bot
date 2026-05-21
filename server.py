@@ -14,6 +14,8 @@ from flask_socketio import SocketIO, emit
 from pynput.mouse import Button, Listener as MouseListener
 
 import config
+import farm_scenarios
+import jump_point_storage
 import route_storage
 import settings_storage
 from bot_engine import BotEngine
@@ -92,6 +94,9 @@ def _current_state() -> dict:
         "route_memory_ready": engine.route_memory_ready(),
         "route": route_state,
         "saved_routes": route_storage.list_summaries(),
+        "jump_points": jump_point_storage.load_points(),
+        "farm_scenarios": farm_scenarios.load_scenarios(),
+        "farm_target": engine.get_farm_target(),
         "game_process_name": getattr(config, "GAME_PROCESS_NAME", ""),
     }
 
@@ -168,6 +173,13 @@ def _record_bounce_route():
     _broadcast_state()
 
 
+def _record_jump_point():
+    ok, err = engine.record_jump_point_from_cursor()
+    if not ok:
+        _on_log(err or "No se pudo guardar el punto de salto", "WARNING")
+    _broadcast_state()
+
+
 def _normalize_mouse_button(value) -> str:
     if not value:
         return ""
@@ -189,6 +201,8 @@ def _register_mouse_toggle():
     if _mouse_listener:
         return
 
+    button_name = _normalize_mouse_button(getattr(config, "MOUSE_TOGGLE_BOT_BUTTON", ""))
+
     def on_click(_x, _y, button, pressed):
         global _last_mouse_toggle
         if not pressed:
@@ -207,7 +221,6 @@ def _register_mouse_toggle():
         _mouse_listener = MouseListener(on_click=on_click)
         _mouse_listener.daemon = True
         _mouse_listener.start()
-        button_name = _normalize_mouse_button(getattr(config, "MOUSE_TOGGLE_BOT_BUTTON", ""))
         if button_name:
             _on_log(f"Boton de mouse activo para Bot ON/OFF: {button_name}", "SUCCESS")
     except Exception as exc:
@@ -234,9 +247,13 @@ def _register_hotkeys():
             getattr(config, "HOTKEY_RECORD_BOUNCE_ROUTE", "num 1"),
             _record_bounce_route,
         )
+        keyboard.add_hotkey(
+            getattr(config, "HOTKEY_RECORD_JUMP_POINT", "num 2"),
+            _record_jump_point,
+        )
         _hotkeys_registered = True
         _on_log(
-            f"Hotkeys activas: {config.HOTKEY_TOGGLE_BOT} Bot | {config.HOTKEY_TOGGLE_SKILL} Skill | {config.HOTKEY_TOGGLE_PICK} Pick | {config.HOTKEY_EMERGENCY_OFF} Emergencia | {getattr(config, 'HOTKEY_RECORD_BOUNCE_ROUTE', 'num 1')} Ruta ida/vuelta",
+            f"Hotkeys activas: {config.HOTKEY_TOGGLE_BOT} Bot | {config.HOTKEY_TOGGLE_SKILL} Skill | {config.HOTKEY_TOGGLE_PICK} Pick | {config.HOTKEY_EMERGENCY_OFF} Emergencia | {getattr(config, 'HOTKEY_RECORD_BOUNCE_ROUTE', 'num 1')} Ruta ida/vuelta | {getattr(config, 'HOTKEY_RECORD_JUMP_POINT', 'num 2')} Punto salto",
             "SUCCESS",
         )
     except Exception as exc:
@@ -315,6 +332,37 @@ def handle_route_add_point(data):
 @socketio.on("route_record_bounce")
 def handle_route_record_bounce():
     _record_bounce_route()
+
+
+@socketio.on("jump_point_record")
+def handle_jump_point_record():
+    _record_jump_point()
+
+
+@socketio.on("jump_points_clear")
+def handle_jump_points_clear():
+    jump_point_storage.clear_points()
+    _on_log("Puntos de salto calibrados borrados", "INFO")
+    _broadcast_state()
+
+
+@socketio.on("farm_target_set")
+def handle_farm_target_set(data):
+    data = data or {}
+    scenario = str(data.get("scenario") or "")
+    try:
+        mob_index = int(data.get("mob_index", -1))
+    except (TypeError, ValueError):
+        mob_index = -1
+    target = farm_scenarios.find_mob(scenario, mob_index)
+    engine.set_farm_target(target)
+    _broadcast_state()
+
+
+@socketio.on("farm_target_clear")
+def handle_farm_target_clear():
+    engine.set_farm_target(None)
+    _broadcast_state()
 
 
 @socketio.on("route_start")

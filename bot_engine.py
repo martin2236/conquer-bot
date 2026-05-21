@@ -15,6 +15,7 @@ from datetime import datetime
 import pyautogui
 
 import keyboard
+import jump_point_storage
 
 try:
     import game_memory
@@ -89,6 +90,18 @@ class BotEngine:
             "coclassic_hero_x": None,
             "coclassic_hero_y": None,
             "coclassic_hero_status": None,
+            "coclassic_hero_dead": False,
+            "coclassic_hero_xp_ready": False,
+            "coclassic_hero_max_hp": None,
+            "coclassic_hero_stamina": None,
+            "coclassic_hero_max_stamina": None,
+            "coclassic_hero_stat_table": "",
+            "coclassic_hero_max_mana": None,
+            "coclassic_hero_max_mana_valid": None,
+            "coclassic_bag_count": None,
+            "coclassic_bag_full": None,
+            "coclassic_arrow_equipped": None,
+            "coclassic_arrow_packs": 0,
             "coclassic_deque_map": "",
             "coclassic_deque_map_size": None,
             "coclassic_deque_offset": None,
@@ -105,6 +118,10 @@ class BotEngine:
             "memory_entities": [],
             "memory_drops": [],
             "memory_state_err": "",
+            "dragonball_alert": False,
+            "dragonball_alert_confidence": 0.0,
+            "jump_points_count": 0,
+            "jump_points": [],
             "inventory_full": False,
             "inventory_check_err": "",
         }
@@ -150,8 +167,15 @@ class BotEngine:
         self._mob_avoid_until: dict[int, float] = {}
         self._prefer_opposite_vector: tuple[int, int, float] | None = None
         self._scatter_jump_radius_boost = 0.0
+        self._jump_point_avoid_until: dict[int, float] = {}
         self._scatter_in_place_count = 0
         self._last_scatter_attack_click = 0.0
+        self._last_jump_point_log = 0.0
+        self._movement_watch_xy: tuple[int, int] | None = None
+        self._movement_watch_last_moved_at = time.time()
+        self._last_forced_move_jump = 0.0
+        self._forced_move_jump_index = 0
+        self._farm_target: dict | None = None
         self._game_window = None
 
         # Índice de habilidad actual (rotación; ignorado si ARCHER_SCATTER_ONLY)
@@ -167,6 +191,7 @@ class BotEngine:
             self.vision.on_item_found   = self._on_item_detected
             self.vision.on_low_hp       = self._on_low_hp
             self.vision.on_state_update = self._on_vision_state
+            self.vision.on_dragonball_alert = self._on_dragonball_alert
             self.log("👁  Módulo de visión disponible")
         else:
             self.log("⚠️  Módulo de visión no disponible (OpenCV no instalado)", "WARNING")
@@ -200,7 +225,11 @@ class BotEngine:
         self.stats["session_start"] = datetime.now()
         self.log("✅ Bot iniciado")
         self._start_stats_thread()
-        if self._scatter_min_enemies() > 0 and self.vision and not self.vision_enabled:
+        needs_vision = (
+            self._scatter_min_enemies() > 0
+            or getattr(config, "DRAGON_BALL_ALERT_ENABLED", True)
+        )
+        if needs_vision and self.vision and not self.vision_enabled:
             self.vision_enabled = True
         if self.vision and self.vision_enabled:
             self.vision.start()
@@ -275,6 +304,8 @@ class BotEngine:
                 else:
                     mem_err = "Modulo memory_state no disponible"
 
+                dragonball_drop = None
+                memory_inventory_full_detail = ""
                 with self._lock:
                     self.stats["arrows_memory"] = val_arrow
                     self.stats["arrows_memory_err"] = err_arrow
@@ -297,6 +328,18 @@ class BotEngine:
                         self.stats["coclassic_hero_x"] = data.get("coclassic_hero_x")
                         self.stats["coclassic_hero_y"] = data.get("coclassic_hero_y")
                         self.stats["coclassic_hero_status"] = data.get("coclassic_hero_status")
+                        self.stats["coclassic_hero_dead"] = bool(data.get("coclassic_hero_dead"))
+                        self.stats["coclassic_hero_xp_ready"] = bool(data.get("coclassic_hero_xp_ready"))
+                        self.stats["coclassic_hero_max_hp"] = data.get("coclassic_hero_max_hp")
+                        self.stats["coclassic_hero_stamina"] = data.get("coclassic_hero_stamina")
+                        self.stats["coclassic_hero_max_stamina"] = data.get("coclassic_hero_max_stamina")
+                        self.stats["coclassic_hero_stat_table"] = data.get("coclassic_hero_stat_table_hex") or ""
+                        self.stats["coclassic_hero_max_mana"] = data.get("coclassic_hero_max_mana")
+                        self.stats["coclassic_hero_max_mana_valid"] = data.get("coclassic_hero_max_mana_valid")
+                        self.stats["coclassic_bag_count"] = data.get("coclassic_bag_count")
+                        self.stats["coclassic_bag_full"] = data.get("coclassic_bag_full")
+                        self.stats["coclassic_arrow_equipped"] = data.get("coclassic_arrow_equipped")
+                        self.stats["coclassic_arrow_packs"] = data.get("coclassic_arrow_packs") or 0
                         self.stats["coclassic_deque_map"] = data.get("coclassic_deque_map_hex") or ""
                         self.stats["coclassic_deque_map_size"] = data.get("coclassic_deque_map_size")
                         self.stats["coclassic_deque_offset"] = data.get("coclassic_deque_offset")
@@ -307,16 +350,37 @@ class BotEngine:
                         entities = data.get("entities") or []
                         nearby_entities = data.get("nearby_entities") or []
                         drops = data.get("drops") or []
+                        farm_target_entities = self._filter_farm_target_candidates(nearby_entities)
                         self.stats["memory_entities_total_count"] = len(entities)
                         self.stats["memory_nearby_entities_count"] = len(nearby_entities)
+                        self.stats["memory_farm_target_count"] = len(farm_target_entities)
                         self.stats["memory_entities_count"] = len(nearby_entities)
                         self.stats["memory_drops_count"] = len(drops)
                         self.stats["memory_entities"] = entities[:10]
                         self.stats["memory_nearby_entities"] = nearby_entities[:10]
                         self.stats["memory_target_entity"] = self._select_memory_target(nearby_entities)
                         self.stats["memory_drops"] = drops[:10]
+                        dragonball_drop = self._find_dragonball_memory_drop(drops)
+                        if dragonball_drop:
+                            self.stats["dragonball_alert"] = True
                         if data.get("coclassic_roles_read", 0):
                             self.stats["enemies_detected"] = len(nearby_entities)
+                        if data.get("coclassic_bag_full") is not None:
+                            self.stats["inventory_full"] = bool(data.get("coclassic_bag_full"))
+                            count = data.get("coclassic_bag_count")
+                            self.stats["inventory_check_err"] = (
+                                f"Memoria: bolsa {count}/40"
+                                if count is not None else "Memoria: bolsa leida"
+                            )
+                            if data.get("coclassic_bag_full"):
+                                memory_inventory_full_detail = self.stats["inventory_check_err"]
+                            else:
+                                self._inventory_disconnect_handled = False
+                    if dragonball_drop:
+                        self._on_dragonball_memory_drop(dragonball_drop)
+                    if memory_inventory_full_detail and self.running and not self._inventory_disconnect_handled:
+                        self._inventory_disconnect_handled = True
+                        self._on_inventory_full(memory_inventory_full_detail)
                 if self.on_stats_update:
                     self.on_stats_update(self.get_stats())
             except Exception as e:
@@ -628,6 +692,56 @@ class BotEngine:
         self._emit_route_update()
         return True, ""
 
+    def set_farm_target(self, target: dict | None):
+        if not target:
+            self._farm_target = None
+            self.log("Zona de farmeo desactivada.", "INFO")
+            return
+        coords = target.get("coords")
+        if not isinstance(coords, list) or len(coords) != 2:
+            self._farm_target = None
+            self.log("Ese mob no tiene coordenadas de farmeo cargadas.", "WARNING")
+            return
+        self._farm_target = {
+            "scenario": str(target.get("scenario") or ""),
+            "name": str(target.get("name") or ""),
+            "mapId": target.get("mapId"),
+            "level": target.get("level"),
+            "type": str(target.get("type") or ""),
+            "coords": [int(coords[0]), int(coords[1])],
+        }
+        self.log(
+            f"Zona de farmeo: {self._farm_target['scenario']} / {self._farm_target['name']} "
+            f"@ {self._farm_target['coords'][0]},{self._farm_target['coords'][1]}",
+            "SUCCESS",
+        )
+
+    def get_farm_target(self) -> dict | None:
+        return dict(self._farm_target) if self._farm_target else None
+
+    def record_jump_point_from_cursor(self) -> tuple[bool, str]:
+        window = self._game_window if self._window_has_valid_bounds(self._game_window) else self._find_game_window()
+        if not self._window_has_valid_bounds(window):
+            return False, "No encuentro la ventana del juego para calibrar el punto de salto."
+        self._game_window = window
+
+        mouse_x, mouse_y = pyautogui.position()
+        center_x = int(window.left + window.width / 2)
+        center_y = int(window.top + window.height / 2)
+        dx = int(mouse_x - center_x)
+        dy = int(mouse_y - center_y)
+        if abs(dx) < 10 and abs(dy) < 10:
+            return False, "El punto esta demasiado cerca del centro/personaje."
+
+        point = jump_point_storage.add_point(dx, dy)
+        points = jump_point_storage.load_points()
+        with self._lock:
+            self.stats["jump_points"] = points[:16]
+            self.stats["jump_points_count"] = len(points)
+        self.log(f"Punto de salto agregado: {point['label']} dx={dx} dy={dy}", "SUCCESS")
+        self._emit_stats()
+        return True, ""
+
     def stop_route(self):
         self._route_stop.set()
         with self._route_lock:
@@ -746,6 +860,7 @@ class BotEngine:
             for entity in nearby_entities
             if int(entity.get("entity_id") or 0) not in self._mob_avoid_until
         ]
+        candidates = self._filter_farm_target_candidates(candidates)
         if not candidates:
             return None
 
@@ -780,6 +895,23 @@ class BotEngine:
             candidates.sort(key=lambda e: (int(e.get("distance") or 999999), int(e.get("entity_id") or 0)))
 
         return candidates[0]
+
+    def _filter_farm_target_candidates(self, candidates: list[dict]) -> list[dict]:
+        if not getattr(config, "FARM_TARGET_STRICT_MOB", True):
+            return candidates
+        if not self._farm_target:
+            return candidates
+        target_name = str(self._farm_target.get("name") or "").strip().lower()
+        if not target_name:
+            return candidates
+        return [
+            entity
+            for entity in candidates
+            if str(entity.get("name") or "").strip().lower() == target_name
+        ]
+
+    def _requires_farm_target_entity(self) -> bool:
+        return bool(getattr(config, "FARM_TARGET_STRICT_MOB", True) and self._farm_target)
 
     def _select_cluster_target(self, candidates: list[dict]) -> dict | None:
         if str(getattr(config, "SCATTER_TARGET_MODE", "hybrid") or "hybrid").lower() != "hybrid":
@@ -1051,6 +1183,10 @@ class BotEngine:
 
         dx = int(target_x) - int(hero_x)
         dy = int(target_y) - int(hero_y)
+        if for_jump:
+            calibrated = self._calibrated_jump_screen_point(dx, dy, target)
+            if calibrated:
+                return calibrated
         if for_jump and getattr(config, "SCATTER_JUMP_LONG_AIM", True):
             dx, dy = self._jump_click_delta(dx, dy)
         radius = None
@@ -1058,6 +1194,110 @@ class BotEngine:
             base_radius = float(getattr(config, "SCATTER_AIM_MAX_SCREEN_RADIUS", 360) or 360)
             radius = base_radius + max(0.0, self._scatter_jump_radius_boost)
         return self._delta_screen_point(dx, dy, radius)
+
+    def _calibrated_jump_screen_point(self, map_dx: int, map_dy: int, target: dict | None = None) -> tuple[int, int] | None:
+        if not getattr(config, "SCATTER_JUMP_USE_CALIBRATED_POINTS", True):
+            return None
+        if not self._window_has_valid_bounds(self._game_window):
+            return None
+        points = jump_point_storage.load_points()
+        if not points:
+            return None
+
+        now = time.time()
+        self._jump_point_avoid_until = {
+            int(point_id): until
+            for point_id, until in self._jump_point_avoid_until.items()
+            if until > now
+        }
+
+        half_w = float(getattr(config, "SCATTER_AIM_TILE_HALF_WIDTH", 24) or 24)
+        half_h = float(getattr(config, "SCATTER_AIM_TILE_HALF_HEIGHT", 12) or 12)
+        desired_x = (map_dx - map_dy) * half_w
+        desired_y = (map_dx + map_dy) * half_h
+        desired_len = math.hypot(desired_x, desired_y)
+        if desired_len <= 0:
+            return None
+
+        scored = []
+        for point in points:
+            point_id = int(point.get("id") or 0)
+            if point_id in self._jump_point_avoid_until:
+                continue
+            px = float(point.get("dx") or 0)
+            py = float(point.get("dy") or 0)
+            plen = math.hypot(px, py)
+            if plen <= 0:
+                continue
+            alignment = (desired_x * px + desired_y * py) / (desired_len * plen)
+            scored.append((alignment, plen, point))
+        if not scored:
+            return None
+
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        alignment, _plen, point = scored[0]
+        min_alignment = float(getattr(config, "SCATTER_JUMP_POINT_MIN_ALIGNMENT", 0.0) or 0.0)
+        if alignment < min_alignment:
+            return None
+
+        center_x = int(self._game_window.left + self._game_window.width / 2)
+        center_y = int(self._game_window.top + self._game_window.height / 2)
+        if target is not None:
+            target["_jump_point_id"] = int(point.get("id") or 0)
+            target["_jump_point_label"] = point.get("label") or ""
+            target["_jump_point_alignment"] = round(alignment, 3)
+        self._log_calibrated_jump_choice(point, alignment)
+        return int(center_x + int(point["dx"])), int(center_y + int(point["dy"]))
+
+    def _log_calibrated_jump_choice(self, point: dict, alignment: float):
+        if not getattr(config, "SCATTER_JUMP_POINT_LOG", False):
+            return
+        now = time.time()
+        if now - self._last_jump_point_log < 2.0:
+            return
+        self._last_jump_point_log = now
+        label = point.get("label") or f"J{point.get('id', '?')}"
+        self.log(f"Salto calibrado: {label} align={alignment:.2f}", "INFO")
+
+    def _aim_at_calibrated_cursor_direction(self) -> bool:
+        if not getattr(config, "SCATTER_JUMP_USE_CALIBRATED_POINTS", True):
+            return False
+        if not self._window_has_valid_bounds(self._game_window):
+            return False
+        points = jump_point_storage.load_points()
+        if not points:
+            return False
+
+        center_x = int(self._game_window.left + self._game_window.width / 2)
+        center_y = int(self._game_window.top + self._game_window.height / 2)
+        mouse_x, mouse_y = pyautogui.position()
+        vx = float(mouse_x - center_x)
+        vy = float(mouse_y - center_y)
+        vlen = math.hypot(vx, vy)
+        if vlen < 10:
+            return False
+
+        best = None
+        for point in points:
+            px = float(point.get("dx") or 0)
+            py = float(point.get("dy") or 0)
+            plen = math.hypot(px, py)
+            if plen <= 0:
+                continue
+            alignment = (vx * px + vy * py) / (vlen * plen)
+            candidate = (alignment, plen, point)
+            if best is None or candidate[:2] > best[:2]:
+                best = candidate
+        if not best:
+            return False
+
+        alignment, _plen, point = best
+        min_alignment = float(getattr(config, "SCATTER_JUMP_POINT_MIN_ALIGNMENT", 0.0) or 0.0)
+        if alignment < min_alignment:
+            return False
+        pyautogui.moveTo(center_x + int(point["dx"]), center_y + int(point["dy"]))
+        self._log_calibrated_jump_choice(point, alignment)
+        return True
 
     def _jump_click_delta(self, dx: int, dy: int) -> tuple[int, int]:
         step = max(abs(dx), abs(dy))
@@ -1151,13 +1391,15 @@ class BotEngine:
         if burst > 0 and self._scatter_in_place_count >= burst:
             return False
         distance = target.get("distance")
+        distance_value = int(distance) if distance is not None else None
         if distance is not None:
             close_distance = int(getattr(config, "SCATTER_ATTACK_IN_PLACE_DISTANCE", 11) or 11)
-            if int(distance) <= close_distance:
+            if distance_value <= close_distance:
                 return True
         cluster_count = int(target.get("cluster_count") or 0)
         cluster_min = int(getattr(config, "SCATTER_ATTACK_IN_PLACE_CLUSTER_MIN", 3) or 3)
-        return cluster_count >= cluster_min
+        cluster_distance = int(getattr(config, "SCATTER_ATTACK_IN_PLACE_CLUSTER_DISTANCE", 12) or 12)
+        return cluster_count >= cluster_min and distance_value is not None and distance_value <= cluster_distance
 
     def _scatter_attack_cooldown_ready(self) -> bool:
         cooldown = max(0.0, float(getattr(config, "SCATTER_ATTACK_COOLDOWN_SEC", 0.9) or 0.9))
@@ -1191,6 +1433,98 @@ class BotEngine:
             pyautogui.click(button="left")
         finally:
             pyautogui.keyUp("ctrl")
+        return True
+
+    def _movement_watchdog_wants_jump(self) -> bool:
+        if not getattr(config, "SCATTER_FORCE_MOVE_WATCHDOG_ENABLED", True):
+            return False
+        hero_x, hero_y = self._current_hero_xy()
+        if hero_x is None or hero_y is None:
+            return False
+
+        now = time.time()
+        current = (int(hero_x), int(hero_y))
+        if self._movement_watch_xy != current:
+            self._movement_watch_xy = current
+            self._movement_watch_last_moved_at = now
+            return False
+
+        stuck_after = max(0.5, float(getattr(config, "SCATTER_FORCE_MOVE_AFTER_SEC", 2.8) or 2.8))
+        cooldown = max(0.1, float(getattr(config, "SCATTER_FORCE_MOVE_COOLDOWN_SEC", 0.8) or 0.8))
+        if now - self._movement_watch_last_moved_at < stuck_after:
+            return False
+        if now - self._last_forced_move_jump < cooldown:
+            return False
+        return True
+
+    def _force_calibrated_roam_jump(self, reason: str = "quieto") -> bool:
+        if not self._focus_game_window():
+            return False
+        if not self._window_has_valid_bounds(self._game_window):
+            return False
+
+        if self._jump_to_farm_target(reason, min_distance=0, log_prefix="Watchdog movimiento"):
+            return True
+
+        points = jump_point_storage.load_points()
+        if not points:
+            return False
+
+        now = time.time()
+        center_x = int(self._game_window.left + self._game_window.width / 2)
+        center_y = int(self._game_window.top + self._game_window.height / 2)
+        point = points[self._forced_move_jump_index % len(points)]
+        self._forced_move_jump_index += 1
+        screen_point = (center_x + int(point["dx"]), center_y + int(point["dy"]))
+        if not self._ctrl_left_click_at(screen_point):
+            return False
+
+        self._last_forced_move_jump = now
+        self._scatter_force_attack_until = 0.0
+        self._scatter_in_place_count = 0
+        if now - self._last_jump_validate_log > 2:
+            label = point.get("label") or f"J{point.get('id', '?')}"
+            self.log(f"Watchdog movimiento: salto forzado {label} ({reason}).", "WARNING")
+            self._last_jump_validate_log = now
+        return True
+
+    def _jump_to_farm_target(
+        self,
+        reason: str,
+        min_distance: int | None = None,
+        log_prefix: str = "Farmeo",
+    ) -> bool:
+        if not self._farm_target:
+            return False
+        coords = self._farm_target.get("coords") or []
+        if len(coords) != 2:
+            return False
+
+        hero_x, hero_y = self._current_hero_xy()
+        if hero_x is not None and hero_y is not None:
+            distance = max(abs(int(coords[0]) - int(hero_x)), abs(int(coords[1]) - int(hero_y)))
+            if min_distance is None:
+                min_distance = int(getattr(config, "FARM_RETURN_MIN_DISTANCE_TILES", 8) or 8)
+            if distance < max(0, int(min_distance)):
+                return False
+
+        target = {
+            "x": int(coords[0]),
+            "y": int(coords[1]),
+            "name": self._farm_target.get("name") or "farm",
+        }
+        point = self._target_screen_point(target, for_jump=True)
+        if not point or not self._ctrl_left_click_at(point):
+            return False
+
+        now = time.time()
+        self._last_forced_move_jump = now
+        self._scatter_force_attack_until = 0.0
+        self._scatter_in_place_count = 0
+        if now - self._last_jump_validate_log > 2:
+            label = self._farm_target.get("name") or "farm"
+            self.log(f"{log_prefix}: regreso a zona {label} ({reason}).", "WARNING")
+            self._last_jump_validate_log = now
         return True
 
     def _escape_from_blocked_target(self, blocked_target: dict, before_x: int | None, before_y: int | None) -> bool:
@@ -1288,6 +1622,10 @@ class BotEngine:
             return True
 
         reason = "misma posicion" if same_position else f"salto corto {moved_tiles} tiles; d {before_distance}->{after_distance}"
+        point_id = int(before_target.get("_jump_point_id") or 0)
+        if point_id:
+            avoid_sec = float(getattr(config, "SCATTER_STUCK_OPPOSITE_TARGET_SEC", 4.0) or 4.0)
+            self._jump_point_avoid_until[point_id] = time.time() + avoid_sec
         self._mark_target_blocked(before_target, reason)
         self._escape_from_blocked_target(before_target, before_x, before_y)
         return False
@@ -1316,9 +1654,14 @@ class BotEngine:
             self.log(f"Modificador no valido en SCATTER_CLICK_PATTERN: {action}", "WARNING")
             return None
 
+        is_jump_click = button == "left" and "ctrl" in modifiers
+        if self._movement_watchdog_wants_jump():
+            if self._force_calibrated_roam_jump("sin cambio de coordenadas"):
+                return "ctrl+left"
+
         raw_target = self._memory_target_entity()
         converted_in_place = False
-        if button == "left" and "ctrl" in modifiers and self._should_attack_in_place(raw_target):
+        if is_jump_click and self._should_attack_in_place(raw_target):
             action = "right"
             button = "right"
             modifiers = []
@@ -1331,6 +1674,15 @@ class BotEngine:
 
         is_jump_click = button == "left" and "ctrl" in modifiers
         target_before_click = self._aim_at_memory_target(for_jump=is_jump_click)
+        if is_jump_click and target_before_click is None:
+            if (
+                getattr(config, "FARM_RETURN_WHEN_NO_TARGET", True)
+                and self._jump_to_farm_target("sin mobs objetivo")
+            ):
+                return "ctrl+left"
+            if self._requires_farm_target_entity():
+                return None
+            self._aim_at_calibrated_cursor_direction()
         if not self._mouse_inside_game_window():
             return None
 
@@ -1373,13 +1725,18 @@ class BotEngine:
     def _memory_enemy_count(self) -> tuple[int | None, int]:
         with self._lock:
             roles_read = int(self.stats.get("coclassic_roles_read") or 0)
-            nearby = int(self.stats.get("memory_nearby_entities_count") or 0)
+            if self._requires_farm_target_entity():
+                nearby = int(self.stats.get("memory_farm_target_count") or 0)
+            else:
+                nearby = int(self.stats.get("memory_nearby_entities_count") or 0)
         if roles_read > 0:
             return nearby, roles_read
         return None, roles_read
 
     def _should_cast_scatter(self) -> bool:
         """Si SCATTER_MIN_ENEMIES > 0 y visión activa, exige N mobs con barra roja."""
+        if self._requires_farm_target_entity() and self._memory_target_entity() is None:
+            return False
         if time.time() < self._scatter_force_attack_until:
             return True
         need = self._scatter_min_enemies()
@@ -1564,6 +1921,50 @@ class BotEngine:
             time.sleep(1)
 
     # ── Callbacks de visión ────────────────────────────────────────────────
+    def _dragonball_item_ids(self) -> set[int]:
+        ids = getattr(config, "DRAGON_BALL_ITEM_IDS", (1088000,))
+        try:
+            return {int(v) for v in ids}
+        except TypeError:
+            return {int(ids)}
+
+    def _find_dragonball_memory_drop(self, drops: list) -> dict | None:
+        if not getattr(config, "DRAGON_BALL_ALERT_ENABLED", True):
+            return None
+        dragon_ids = self._dragonball_item_ids()
+        for drop in drops or []:
+            if not isinstance(drop, dict):
+                continue
+            item_id = drop.get("item_id")
+            if item_id is not None and int(item_id) in dragon_ids:
+                return drop
+            value = drop.get("value_from_recv")
+            if value is not None and int(value) in dragon_ids:
+                return drop
+        return None
+
+    def _stop_for_dragonball(self, source: str, confidence: float | None = None, drop: dict | None = None):
+        with self._lock:
+            already_alerted = bool(self.stats.get("dragonball_alert"))
+            self.stats["dragonball_alert"] = True
+            if confidence is not None:
+                self.stats["dragonball_alert_confidence"] = round(float(confidence), 3)
+        if already_alerted and not self.running:
+            return
+        detail = ""
+        if confidence is not None:
+            detail = f" match={confidence:.2f}"
+        if drop:
+            detail = f" drop={drop}"
+        self.log(f"Dragon Ball detectada por {source}{detail}. Detengo el bot para conservar posicion.", "ERROR")
+        self.stop("Dragon Ball detectada")
+
+    def _on_dragonball_memory_drop(self, drop: dict):
+        self._stop_for_dragonball("memoria", drop=drop)
+
+    def _on_dragonball_alert(self, confidence: float):
+        self._stop_for_dragonball("chat", confidence=confidence)
+
     def _on_item_detected(self, item):
         if not self.auto_pick_enabled:
             with self._lock:
@@ -1594,6 +1995,8 @@ class BotEngine:
         with self._lock:
             self.stats["hp_percent"] = state.hp_percent
             self.stats["mp_percent"] = state.mp_percent
+            self.stats["dragonball_alert"] = bool(state.dragonball_alert)
+            self.stats["dragonball_alert_confidence"] = float(state.dragonball_alert_confidence or 0.0)
             self.stats["items_detected"] = len(state.items_on_ground) if self.auto_pick_enabled else 0
             if memory_count is None:
                 self.stats["enemies_detected"] = len(state.enemies_nearby)

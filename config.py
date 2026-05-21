@@ -19,6 +19,12 @@ SCATTER_AIM_CENTER_OFFSET_Y = -18
 SCATTER_AIM_MAX_SCREEN_RADIUS = 360
 SCATTER_CLICK_SAFE_AREA = (0.02, 0.08, 0.88, 0.82)  # left, top, right, bottom dentro de la ventana
 SCATTER_JUMP_LONG_AIM = True
+SCATTER_JUMP_USE_CALIBRATED_POINTS = True
+SCATTER_JUMP_POINT_MIN_ALIGNMENT = 0.0
+SCATTER_JUMP_POINT_LOG = False
+SCATTER_FORCE_MOVE_WATCHDOG_ENABLED = True
+SCATTER_FORCE_MOVE_AFTER_SEC = 2.8
+SCATTER_FORCE_MOVE_COOLDOWN_SEC = 0.8
 SCATTER_JUMP_TARGET_TILES = 18
 SCATTER_JUMP_MIN_TARGET_TILES = 14
 SCATTER_JUMP_MIN_MOVE_TILES = 6
@@ -36,13 +42,17 @@ SCATTER_STUCK_ESCAPE_TILES = 8
 SCATTER_STUCK_ESCAPE_MAX_SCREEN_RADIUS = 240
 SCATTER_STUCK_ESCAPE_VALIDATE_DELAY = 0.45
 SCATTER_TARGET_MODE = "hybrid"  # nearest | hybrid
+FARM_TARGET_STRICT_MOB = True  # Si hay zona activa, no perseguir otros mobs cercanos
+FARM_RETURN_WHEN_NO_TARGET = True  # Si no ve el mob elegido, volver hacia su zona
+FARM_RETURN_MIN_DISTANCE_TILES = 8
 SCATTER_CLUSTER_MIN_MOBS = 3
 SCATTER_CLUSTER_RADIUS_TILES = 7
 SCATTER_CLUSTER_MAX_DISTANCE = 22
 SCATTER_CLUSTER_DISTANCE_WEIGHT = 0.35
 SCATTER_ATTACK_IN_PLACE_DISTANCE = 11
 SCATTER_ATTACK_IN_PLACE_CLUSTER_MIN = 3
-SCATTER_ATTACK_IN_PLACE_BURST = 3
+SCATTER_ATTACK_IN_PLACE_CLUSTER_DISTANCE = 12
+SCATTER_ATTACK_IN_PLACE_BURST = 1
 SCATTER_ATTACK_COOLDOWN_SEC = 0.9
 
 # Solo lanzar Scatter si hay al menos N enemigos detectados (barras rojas).
@@ -60,6 +70,13 @@ ENEMY_SCAN_AREA = (0.0, 0.10, 1.0, 0.84)
 
 # Evita spam de logs si vision confunde flores/UI con drops.
 LOG_ITEM_DETECTIONS = False
+
+# Dragon Ball: si aparece en chat o en la lista de drops por memoria, detener el bot.
+DRAGON_BALL_ALERT_ENABLED = True
+DRAGON_BALL_CHAT_TEMPLATE = "templates/dragonball_chat_template.png"
+DRAGON_BALL_CHAT_SCAN_AREA = (0.0, 0.0, 0.78, 0.22)
+DRAGON_BALL_CHAT_MATCH_THRESHOLD = 0.78
+DRAGON_BALL_ITEM_IDS = (1088000,)
 
 # --- Teclas de habilidades ---
 # Modifica estas teclas según las que tengas configuradas en el juego.
@@ -233,6 +250,7 @@ HOTKEY_TOGGLE_SKILL  = "F10"  # Activar/desactivar auto skill
 HOTKEY_TOGGLE_PICK   = "F11"  # Activar/desactivar auto pick
 HOTKEY_EMERGENCY_OFF = "F12"  # Apagado de emergencia
 HOTKEY_RECORD_BOUNCE_ROUTE = "num 1"  # Grabar ruta simple ida/vuelta desde el puntero actual
+HOTKEY_RECORD_JUMP_POINT = "num 2"  # Guardar punto calibrado de salto desde el puntero actual
 MOUSE_TOGGLE_BOT_BUTTON = "x1"  # "x1", "x2" o "" para desactivar
 
 # --- Seguridad ---

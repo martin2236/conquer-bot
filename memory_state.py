@@ -39,6 +39,18 @@ class MemoryDrop:
 
 
 @dataclass
+class MemoryItem:
+    address: int
+    item_id: Optional[int] = None
+    type_id: Optional[int] = None
+    name: str = ""
+    amount: Optional[int] = None
+    amount_limit: Optional[int] = None
+    is_arrow: bool = False
+    source: str = ""
+
+
+@dataclass
 class MemorySnapshot:
     ok: bool = False
     error: str = ""
@@ -55,6 +67,19 @@ class MemorySnapshot:
     coclassic_hero_x: Optional[int] = None
     coclassic_hero_y: Optional[int] = None
     coclassic_hero_status: Optional[int] = None
+    coclassic_hero_dead: bool = False
+    coclassic_hero_xp_ready: bool = False
+    coclassic_hero_max_hp: Optional[int] = None
+    coclassic_hero_stamina: Optional[int] = None
+    coclassic_hero_max_stamina: Optional[int] = None
+    coclassic_hero_stat_table: Optional[int] = None
+    coclassic_hero_max_mana: Optional[int] = None
+    coclassic_hero_max_mana_valid: Optional[int] = None
+    coclassic_bag_count: Optional[int] = None
+    coclassic_bag_full: Optional[bool] = None
+    coclassic_arrow_equipped: Optional[int] = None
+    coclassic_arrow_packs: int = 0
+    coclassic_inventory_items: list[MemoryItem] = field(default_factory=list)
     coclassic_deque_map: Optional[int] = None
     coclassic_deque_map_size: Optional[int] = None
     coclassic_deque_offset: Optional[int] = None
@@ -76,6 +101,8 @@ class MemorySnapshot:
             data["coclassic_role_mgr_hex"] = f"{self.coclassic_role_mgr:016X}"
         if self.coclassic_hero is not None:
             data["coclassic_hero_hex"] = f"{self.coclassic_hero:016X}"
+        if self.coclassic_hero_stat_table is not None:
+            data["coclassic_hero_stat_table_hex"] = f"{self.coclassic_hero_stat_table:016X}"
         if self.coclassic_deque_map is not None:
             data["coclassic_deque_map_hex"] = f"{self.coclassic_deque_map:016X}"
         return data
@@ -333,6 +360,141 @@ def _read_coclassic_role(proc: str, role_addr: int) -> Optional[MemoryEntity]:
     return entity
 
 
+def _read_coclassic_item(proc: str, item_addr: int, source: str = "") -> Optional[MemoryItem]:
+    if not _looks_like_process_pointer(item_addr):
+        return None
+
+    id_offset = _cfg_int("MEMORY_COCLASSIC_ITEM_ID_OFFSET", 0x08)
+    type_offset = _cfg_int("MEMORY_COCLASSIC_ITEM_TYPE_OFFSET", 0x10)
+    name_offset = _cfg_int("MEMORY_COCLASSIC_ITEM_NAME_OFFSET", 0x18)
+    name_size = _cfg_int("MEMORY_COCLASSIC_ITEM_NAME_SIZE", 16)
+    amount_offset = _cfg_int("MEMORY_COCLASSIC_ITEM_AMOUNT_OFFSET", 0x62)
+    limit_offset = _cfg_int("MEMORY_COCLASSIC_ITEM_AMOUNT_LIMIT_OFFSET", 0x64)
+
+    item_id, id_err = _read_u32(proc, item_addr + id_offset)
+    type_id, type_err = _read_u32(proc, item_addr + type_offset)
+    if (id_err and type_err) or (item_id is None and type_id is None):
+        return None
+
+    name, _ = game_memory.read_c_string_at(proc, item_addr + name_offset, name_size)
+    amount, _ = _read_u16(proc, item_addr + amount_offset)
+    amount_limit, _ = _read_u16(proc, item_addr + limit_offset)
+    type_value = int(type_id or 0)
+    text_name = name or ""
+
+    item = MemoryItem(address=int(item_addr), source=source)
+    item.item_id = item_id
+    item.type_id = type_id
+    item.name = text_name
+    item.amount = amount
+    item.amount_limit = amount_limit
+    item.is_arrow = (1050000 <= type_value < 1060000) or ("Arrow" in text_name)
+    return item
+
+
+def _read_shared_ptr_deque(
+    proc: str,
+    deque_addr: int,
+    max_read: int,
+    reader,
+) -> tuple[list, list[str], Optional[int]]:
+    qwords: list[int] = []
+    raw_debug: list[str] = []
+    for qindex in range(8):
+        value, _ = _read_u64(proc, deque_addr + qindex * 8)
+        qwords.append(int(value or 0))
+
+    layouts: list[tuple[int, int, int, int, str]] = []
+    for start in (0, 8, 16, 24):
+        if start + 24 >= 64:
+            continue
+        layouts.append((
+            qwords[start // 8],
+            qwords[start // 8 + 1],
+            qwords[start // 8 + 2],
+            qwords[start // 8 + 3],
+            f"start=+{start:02X}",
+        ))
+
+    best_items: list = []
+    best_size: Optional[int] = None
+    best_score = -1
+    shared_ptr_size = 16
+
+    for map_addr, map_size, myoff, size, layout_name in layouts:
+        if not (
+            _looks_like_process_pointer(map_addr)
+            and map_size
+            and int(map_size) <= 0x10000
+            and int(size) <= 10000
+        ):
+            continue
+
+        limit = min(int(size), max(0, max_read))
+        for block_size in (1, 2, 4, 8, 16):
+            for ptr_delta in (0, 8):
+                local_items: list = []
+                local_seen: set[int] = set()
+                for index in range(limit):
+                    logical_index = int(myoff or 0) + index
+                    block_index = (logical_index // block_size) % int(map_size)
+                    item_index = logical_index % block_size
+                    block_ptr, block_err = _read_u64(proc, int(map_addr) + block_index * 8)
+                    if block_err or not _looks_like_process_pointer(block_ptr):
+                        continue
+                    shared_ptr_addr = int(block_ptr) + item_index * shared_ptr_size + ptr_delta
+                    item_ptr, item_err = _read_u64(proc, shared_ptr_addr)
+                    if item_err or not _looks_like_process_pointer(item_ptr):
+                        continue
+                    if int(item_ptr) in local_seen:
+                        continue
+                    local_seen.add(int(item_ptr))
+                    item = reader(proc, int(item_ptr))
+                    if item:
+                        local_items.append(item)
+
+                score = len(local_items)
+                if score > best_score:
+                    best_score = score
+                    best_items = local_items
+                    best_size = int(size)
+                    raw_debug = [f"using {layout_name} block={block_size} delta={ptr_delta} size={int(size)}"]
+
+    return best_items, raw_debug, best_size
+
+
+def _read_coclassic_inventory(proc: str, hero: int, snapshot: MemorySnapshot) -> None:
+    max_bag = max(1, _cfg_int("MEMORY_COCLASSIC_MAX_BAG_ITEMS", 40))
+    item_limit = max_bag
+    deque_addr = int(hero) + _cfg_int("MEMORY_COCLASSIC_HERO_INVENTORY_OFFSET", 0xB20)
+    items, debug, size = _read_shared_ptr_deque(
+        proc,
+        deque_addr,
+        item_limit,
+        lambda p, addr: _read_coclassic_item(p, addr, "bag"),
+    )
+    snapshot.coclassic_inventory_items = items[:max_bag]
+    snapshot.coclassic_bag_count = size if size is not None else len(items)
+    snapshot.coclassic_bag_full = int(snapshot.coclassic_bag_count or 0) >= max_bag
+    if debug:
+        snapshot.coclassic_deque_debug.extend([f"bag {line}" for line in debug])
+
+    equipment_offset = _cfg_int("MEMORY_COCLASSIC_HERO_EQUIPMENT_OFFSET", 0xB88)
+    left_weapon_slot = _cfg_int("MEMORY_COCLASSIC_EQUIP_LWEAPON_SLOT", 4)
+    equipped_ptr, _ = _read_u64(proc, int(hero) + equipment_offset + left_weapon_slot * 16)
+    equipped = _read_coclassic_item(proc, int(equipped_ptr or 0), "equip_lweapon")
+    if equipped and equipped.is_arrow:
+        snapshot.coclassic_arrow_equipped = int(equipped.amount or 0)
+
+    arrow_packs = 0
+    if equipped and equipped.is_arrow and int(equipped.amount or 0) > 3:
+        arrow_packs += 1
+    for item in snapshot.coclassic_inventory_items:
+        if item.is_arrow and int(item.amount or 0) > 3:
+            arrow_packs += 1
+    snapshot.coclassic_arrow_packs = arrow_packs
+
+
 def _read_coclassic_roles(proc: str, snapshot: MemorySnapshot) -> tuple[list[MemoryEntity], list[MemoryEntity]]:
     shared_ptr_size = 16
     roles: list[MemoryEntity] = []
@@ -495,12 +657,27 @@ def _read_coclassic_debug(proc: str, snapshot: MemorySnapshot) -> None:
     x_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_X_OFFSET", 0xD8)
     y_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_Y_OFFSET", 0xDC)
     status_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_STATUS_OFFSET", 0x30)
+    max_hp_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_MAX_HP_OFFSET", 0x3D0)
+    stamina_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_STAMINA_OFFSET", 0x6E0)
+    max_stamina_offset = _cfg_int("MEMORY_COCLASSIC_ROLE_MAX_STAMINA_OFFSET", 0x6E4)
+    stat_table_offset = _cfg_int("MEMORY_COCLASSIC_HERO_STAT_TABLE_OFFSET", 0x968)
+    max_mana_offset = _cfg_int("MEMORY_COCLASSIC_HERO_MAX_MANA_OFFSET", 0xCA8)
+    max_mana_valid_offset = _cfg_int("MEMORY_COCLASSIC_HERO_MAX_MANA_VALID_OFFSET", 0xCAC)
 
     snapshot.coclassic_hero_id, _ = _read_u32(proc, hero + id_offset)
     snapshot.coclassic_hero_name, _ = game_memory.read_c_string_at(proc, hero + name_offset, name_size)
     snapshot.coclassic_hero_x, _ = _read_i32(proc, hero + x_offset)
     snapshot.coclassic_hero_y, _ = _read_i32(proc, hero + y_offset)
     snapshot.coclassic_hero_status, _ = _read_u64(proc, hero + status_offset)
+    status_value = int(snapshot.coclassic_hero_status or 0)
+    snapshot.coclassic_hero_xp_ready = bool(status_value & (1 << 4))
+    snapshot.coclassic_hero_dead = bool(status_value & (1 << 5))
+    snapshot.coclassic_hero_max_hp, _ = _read_i32(proc, hero + max_hp_offset)
+    snapshot.coclassic_hero_stamina, _ = _read_i32(proc, hero + stamina_offset)
+    snapshot.coclassic_hero_max_stamina, _ = _read_i32(proc, hero + max_stamina_offset)
+    snapshot.coclassic_hero_stat_table, _ = _read_u64(proc, hero + stat_table_offset)
+    snapshot.coclassic_hero_max_mana, _ = _read_i32(proc, hero + max_mana_offset)
+    snapshot.coclassic_hero_max_mana_valid, _ = _read_u8(proc, hero + max_mana_valid_offset)
 
     deque = role_mgr + _cfg_int("MEMORY_COCLASSIC_ROLE_MGR_DEQUE_OFFSET", 0x70)
     snapshot.coclassic_deque_map, _ = _read_u64(proc, deque + 0x00)
@@ -509,6 +686,7 @@ def _read_coclassic_debug(proc: str, snapshot: MemorySnapshot) -> None:
     snapshot.coclassic_deque_size, _ = _read_u64(proc, deque + 0x18)
     snapshot.entities, snapshot.coclassic_roles_debug = _read_coclassic_roles(proc, snapshot)
     snapshot.coclassic_roles_read = len(snapshot.entities)
+    _read_coclassic_inventory(proc, int(hero), snapshot)
     _update_nearby_entities(snapshot)
 
 
