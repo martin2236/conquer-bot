@@ -9,6 +9,7 @@ import time
 import random
 import threading
 import logging
+import math
 from datetime import datetime
 
 import pyautogui
@@ -19,6 +20,11 @@ try:
     import game_memory
 except ImportError:
     game_memory = None
+
+try:
+    import memory_state
+except ImportError:
+    memory_state = None
 
 try:
     from vision import VisionEngine, check_inventory_last_slot_occupied
@@ -70,6 +76,35 @@ class BotEngine:
             "map_x_memory": None,
             "map_y_memory": None,
             "map_coords_err": "",
+            "player_id_memory": None,
+            "player_id_address_memory": "",
+            "player_base_memory": "",
+            "player_pointer_source": "",
+            "player_x_memory": None,
+            "player_y_memory": None,
+            "coclassic_role_mgr": "",
+            "coclassic_hero": "",
+            "coclassic_hero_id": None,
+            "coclassic_hero_name": "",
+            "coclassic_hero_x": None,
+            "coclassic_hero_y": None,
+            "coclassic_hero_status": None,
+            "coclassic_deque_map": "",
+            "coclassic_deque_map_size": None,
+            "coclassic_deque_offset": None,
+            "coclassic_deque_size": None,
+            "coclassic_roles_read": 0,
+            "coclassic_roles_debug": [],
+            "coclassic_deque_debug": [],
+            "memory_entities_count": 0,
+            "memory_entities_total_count": 0,
+            "memory_nearby_entities_count": 0,
+            "memory_nearby_entities": [],
+            "memory_target_entity": None,
+            "memory_drops_count": 0,
+            "memory_entities": [],
+            "memory_drops": [],
+            "memory_state_err": "",
             "inventory_full": False,
             "inventory_check_err": "",
         }
@@ -109,6 +144,14 @@ class BotEngine:
         self._lock = threading.Lock()
         self._last_focus_attempt = 0.0
         self._last_mouse_warning = 0.0
+        self._last_jump_validate_log = 0.0
+        self._last_start_time = 0.0
+        self._scatter_force_attack_until = 0.0
+        self._mob_avoid_until: dict[int, float] = {}
+        self._prefer_opposite_vector: tuple[int, int, float] | None = None
+        self._scatter_jump_radius_boost = 0.0
+        self._scatter_in_place_count = 0
+        self._last_scatter_attack_click = 0.0
         self._game_window = None
 
         # Índice de habilidad actual (rotación; ignorado si ARCHER_SCATTER_ONLY)
@@ -151,6 +194,7 @@ class BotEngine:
         if self.running:
             return
         self.running = True
+        self._last_start_time = time.time()
         self._inventory_full_streak = 0
         self._inventory_disconnect_handled = False
         self.stats["session_start"] = datetime.now()
@@ -220,12 +264,59 @@ class BotEngine:
                 elif lx and ly and not game_memory:
                     err_coord = "Módulo game_memory no disponible"
 
+                mem_snapshot = None
+                mem_err = ""
+                player_x = player_y = None
+                if memory_state:
+                    mem_snapshot = memory_state.read_snapshot()
+                    mem_err = mem_snapshot.error or ""
+                    player_x = mem_snapshot.player_x
+                    player_y = mem_snapshot.player_y
+                else:
+                    mem_err = "Modulo memory_state no disponible"
+
                 with self._lock:
                     self.stats["arrows_memory"] = val_arrow
                     self.stats["arrows_memory_err"] = err_arrow
-                    self.stats["map_x_memory"] = mx
-                    self.stats["map_y_memory"] = my
+                    self.stats["map_x_memory"] = player_x if player_x is not None else mx
+                    self.stats["map_y_memory"] = player_y if player_y is not None else my
                     self.stats["map_coords_err"] = err_coord
+                    self.stats["memory_state_err"] = mem_err
+                    if mem_snapshot:
+                        data = mem_snapshot.to_dict()
+                        self.stats["player_id_memory"] = data.get("player_id")
+                        self.stats["player_id_address_memory"] = data.get("player_id_address_hex") or ""
+                        self.stats["player_base_memory"] = data.get("player_base_hex") or ""
+                        self.stats["player_pointer_source"] = data.get("player_pointer_source") or ""
+                        self.stats["player_x_memory"] = data.get("player_x")
+                        self.stats["player_y_memory"] = data.get("player_y")
+                        self.stats["coclassic_role_mgr"] = data.get("coclassic_role_mgr_hex") or ""
+                        self.stats["coclassic_hero"] = data.get("coclassic_hero_hex") or ""
+                        self.stats["coclassic_hero_id"] = data.get("coclassic_hero_id")
+                        self.stats["coclassic_hero_name"] = data.get("coclassic_hero_name") or ""
+                        self.stats["coclassic_hero_x"] = data.get("coclassic_hero_x")
+                        self.stats["coclassic_hero_y"] = data.get("coclassic_hero_y")
+                        self.stats["coclassic_hero_status"] = data.get("coclassic_hero_status")
+                        self.stats["coclassic_deque_map"] = data.get("coclassic_deque_map_hex") or ""
+                        self.stats["coclassic_deque_map_size"] = data.get("coclassic_deque_map_size")
+                        self.stats["coclassic_deque_offset"] = data.get("coclassic_deque_offset")
+                        self.stats["coclassic_deque_size"] = data.get("coclassic_deque_size")
+                        self.stats["coclassic_roles_read"] = data.get("coclassic_roles_read") or 0
+                        self.stats["coclassic_roles_debug"] = (data.get("coclassic_roles_debug") or [])[:12]
+                        self.stats["coclassic_deque_debug"] = (data.get("coclassic_deque_debug") or [])[:10]
+                        entities = data.get("entities") or []
+                        nearby_entities = data.get("nearby_entities") or []
+                        drops = data.get("drops") or []
+                        self.stats["memory_entities_total_count"] = len(entities)
+                        self.stats["memory_nearby_entities_count"] = len(nearby_entities)
+                        self.stats["memory_entities_count"] = len(nearby_entities)
+                        self.stats["memory_drops_count"] = len(drops)
+                        self.stats["memory_entities"] = entities[:10]
+                        self.stats["memory_nearby_entities"] = nearby_entities[:10]
+                        self.stats["memory_target_entity"] = self._select_memory_target(nearby_entities)
+                        self.stats["memory_drops"] = drops[:10]
+                        if data.get("coclassic_roles_read", 0):
+                            self.stats["enemies_detected"] = len(nearby_entities)
                 if self.on_stats_update:
                     self.on_stats_update(self.get_stats())
             except Exception as e:
@@ -236,6 +327,7 @@ class BotEngine:
                     self.stats["map_x_memory"] = None
                     self.stats["map_y_memory"] = None
                     self.stats["map_coords_err"] = str(e)[:120]
+                    self.stats["memory_state_err"] = str(e)[:120]
                 if self.on_stats_update:
                     self.on_stats_update(self.get_stats())
             time.sleep(1.0)
@@ -346,16 +438,22 @@ class BotEngine:
             "🎒 Inventario lleno (último slot con ítem). " + detail,
             "WARNING",
         )
-        if getattr(config, "INVENTORY_FULL_STOP_ROUTE", True):
+        if getattr(config, "INVENTORY_FULL_STOP_ROUTE", True) and getattr(config, "INVENTORY_FULL_STOP_BOT", False):
             self.stop_route()
-        self.auto_skill_enabled = False
-        self.auto_pick_enabled = False
+        if getattr(config, "INVENTORY_FULL_STOP_BOT", False):
+            self.auto_skill_enabled = False
+            self.auto_pick_enabled = False
         if getattr(config, "INVENTORY_FULL_DISCONNECT", True):
             self._disconnect_character_session()
-        self.stop()
+        if getattr(config, "INVENTORY_FULL_STOP_BOT", False):
+            self.stop("inventario lleno")
 
     def route_memory_ready(self) -> bool:
         """True si Lat y Lng están configurados con hex válido (requisito para ruta)."""
+        if memory_state:
+            snapshot = memory_state.read_snapshot()
+            if snapshot.player_x is not None and snapshot.player_y is not None:
+                return True
         if not game_memory:
             return False
         lx = getattr(config, "MEMORY_LAT_ADDRESS_HEX", "").strip()
@@ -366,6 +464,30 @@ class BotEngine:
             game_memory.parse_hex_address(lx) is not None
             and game_memory.parse_hex_address(ly) is not None
         )
+
+    def _read_current_map_coords(self) -> tuple[int | None, int | None, str]:
+        """Lee coords actuales; prefiere LocalPlayer pointer y usa Lat/Lng manual como fallback."""
+        if memory_state:
+            snapshot = memory_state.read_snapshot()
+            if snapshot.player_x is not None and snapshot.player_y is not None:
+                return int(snapshot.player_x), int(snapshot.player_y), ""
+            if snapshot.error:
+                return None, None, snapshot.error
+
+        proc = getattr(config, "GAME_PROCESS_NAME", "").strip()
+        lx = getattr(config, "MEMORY_LAT_ADDRESS_HEX", "").strip()
+        ly = getattr(config, "MEMORY_LNG_ADDRESS_HEX", "").strip()
+        if not game_memory or not proc:
+            return None, None, "game_memory o proceso no disponible"
+        ax = game_memory.parse_hex_address(lx)
+        ay = game_memory.parse_hex_address(ly)
+        if ax is None or ay is None:
+            return None, None, "Lat/Lng no configuradas"
+        gx, e1 = game_memory.read_uint16_at(proc, ax)
+        gy, e2 = game_memory.read_uint16_at(proc, ay)
+        if e1 or e2:
+            return None, None, e1 or e2 or "No se leyeron coords"
+        return int(gx), int(gy), ""
 
     def get_route_state(self) -> dict:
         with self._route_lock:
@@ -429,17 +551,9 @@ class BotEngine:
     def add_route_point_here(self, label: str = "") -> tuple[bool, str]:
         if not self.route_memory_ready():
             return False, "Configura Lat y Lng en memoria (CE) y guardá antes de agregar puntos."
-        proc = getattr(config, "GAME_PROCESS_NAME", "").strip()
-        lx = getattr(config, "MEMORY_LAT_ADDRESS_HEX", "").strip()
-        ly = getattr(config, "MEMORY_LNG_ADDRESS_HEX", "").strip()
-        if not game_memory or not proc:
-            return False, "game_memory o proceso no disponible"
-        ax = game_memory.parse_hex_address(lx)
-        ay = game_memory.parse_hex_address(ly)
-        gx, e1 = game_memory.read_uint16_at(proc, ax)
-        gy, e2 = game_memory.read_uint16_at(proc, ay)
-        if e1 or e2:
-            return False, (e1 or e2 or "No se leyeron coords")
+        gx, gy, err = self._read_current_map_coords()
+        if err or gx is None or gy is None:
+            return False, err or "No se leyeron coords"
         sx, sy = pyautogui.position()
         with self._route_lock:
             idx = len(self.route_points) + 1
@@ -463,23 +577,14 @@ class BotEngine:
         if not self.route_memory_ready():
             return False, "Configura Lat y Lng en memoria (CE) y guarda antes de grabar ruta."
 
-        proc = getattr(config, "GAME_PROCESS_NAME", "").strip()
-        lx = getattr(config, "MEMORY_LAT_ADDRESS_HEX", "").strip()
-        ly = getattr(config, "MEMORY_LNG_ADDRESS_HEX", "").strip()
-        if not game_memory or not proc:
-            return False, "game_memory o proceso no disponible"
-
         window = self._game_window if self._window_has_valid_bounds(self._game_window) else self._find_game_window()
         if not self._window_has_valid_bounds(window):
             return False, "No encuentro la ventana del juego para calcular el centro."
         self._game_window = window
 
-        ax = game_memory.parse_hex_address(lx)
-        ay = game_memory.parse_hex_address(ly)
-        gx, e1 = game_memory.read_uint16_at(proc, ax)
-        gy, e2 = game_memory.read_uint16_at(proc, ay)
-        if e1 or e2:
-            return False, (e1 or e2 or "No se leyeron coords")
+        gx, gy, err = self._read_current_map_coords()
+        if err or gx is None or gy is None:
+            return False, err or "No se leyeron coords"
 
         mouse_x, mouse_y = pyautogui.position()
         center_x = int(window.left + window.width / 2)
@@ -558,6 +663,7 @@ class BotEngine:
 
     def _route_loop(self):
         try:
+            last_mob_wait_log = 0.0
             while not self._route_stop.is_set():
                 with self._route_lock:
                     points = [p.copy() for p in self.route_points]
@@ -574,6 +680,27 @@ class BotEngine:
                         self.log("Ruta completada")
                         break
                     next_index = 0
+
+                if self._route_should_wait_for_mobs():
+                    now = time.time()
+                    if now - last_mob_wait_log > 5.0:
+                        target = self._memory_target_entity()
+                        if target:
+                            self.log(
+                                "Ruta en espera: mobs cerca por memoria "
+                                f"({self._memory_nearby_count()}). Objetivo: "
+                                f"{target.get('name') or target.get('entity_id')} "
+                                f"d={target.get('distance')}",
+                                "INFO",
+                            )
+                        else:
+                            self.log(
+                                f"Ruta en espera: mobs cerca por memoria ({self._memory_nearby_count()}).",
+                                "INFO",
+                            )
+                        last_mob_wait_log = now
+                    time.sleep(float(getattr(config, "ROUTE_MOB_WAIT_POLL_SEC", 0.5) or 0.5))
+                    continue
 
                 point = points[next_index]
                 if not self._execute_route_point(point, include_scatter=True):
@@ -592,6 +719,115 @@ class BotEngine:
                 self.route_config["running"] = False
             self._emit_route_update()
             self.log(f"Error en ruta: {e}", "ERROR")
+
+    def _memory_nearby_count(self) -> int:
+        with self._lock:
+            return int(self.stats.get("memory_nearby_entities_count") or 0)
+
+    def _memory_target_entity(self) -> dict | None:
+        with self._lock:
+            target = self.stats.get("memory_target_entity")
+            return target.copy() if isinstance(target, dict) else None
+
+    def _route_should_wait_for_mobs(self) -> bool:
+        if not getattr(config, "ROUTE_WAIT_FOR_MEMORY_MOBS", True):
+            return False
+        return self._memory_nearby_count() > 0 and self._memory_target_entity() is not None
+
+    def _select_memory_target(self, nearby_entities: list[dict]) -> dict | None:
+        now = time.time()
+        self._mob_avoid_until = {
+            int(entity_id): until
+            for entity_id, until in self._mob_avoid_until.items()
+            if until > now
+        }
+        candidates = [
+            entity
+            for entity in nearby_entities
+            if int(entity.get("entity_id") or 0) not in self._mob_avoid_until
+        ]
+        if not candidates:
+            return None
+
+        hero_x = self.stats.get("coclassic_hero_x")
+        hero_y = self.stats.get("coclassic_hero_y")
+        prefer = self._prefer_opposite_vector
+        if (
+            prefer
+            and prefer[2] > now
+            and hero_x is not None
+            and hero_y is not None
+            and len(candidates) > 1
+        ):
+            vx, vy, _until = prefer
+
+            def opposite_score(entity: dict):
+                ex = entity.get("x")
+                ey = entity.get("y")
+                if ex is None or ey is None:
+                    return (0, 999999)
+                dx = int(ex) - int(hero_x)
+                dy = int(ey) - int(hero_y)
+                dot = dx * vx + dy * vy
+                return (-dot, int(entity.get("distance") or 999999))
+
+            candidates.sort(key=opposite_score)
+        else:
+            self._prefer_opposite_vector = None
+            cluster_target = self._select_cluster_target(candidates)
+            if cluster_target:
+                return cluster_target
+            candidates.sort(key=lambda e: (int(e.get("distance") or 999999), int(e.get("entity_id") or 0)))
+
+        return candidates[0]
+
+    def _select_cluster_target(self, candidates: list[dict]) -> dict | None:
+        if str(getattr(config, "SCATTER_TARGET_MODE", "hybrid") or "hybrid").lower() != "hybrid":
+            return None
+        if len(candidates) < 2:
+            return None
+
+        min_mobs = max(2, int(getattr(config, "SCATTER_CLUSTER_MIN_MOBS", 3) or 3))
+        radius = max(1, int(getattr(config, "SCATTER_CLUSTER_RADIUS_TILES", 7) or 7))
+        max_distance = max(1, int(getattr(config, "SCATTER_CLUSTER_MAX_DISTANCE", 22) or 22))
+        distance_weight = float(getattr(config, "SCATTER_CLUSTER_DISTANCE_WEIGHT", 0.35) or 0.35)
+        best: tuple[float, int, int, dict] | None = None
+
+        for entity in candidates:
+            ex = entity.get("x")
+            ey = entity.get("y")
+            distance = int(entity.get("distance") or 999999)
+            if ex is None or ey is None or distance > max_distance:
+                continue
+            ex = int(ex)
+            ey = int(ey)
+            group = []
+            for other in candidates:
+                ox = other.get("x")
+                oy = other.get("y")
+                if ox is None or oy is None:
+                    continue
+                if max(abs(int(ox) - ex), abs(int(oy) - ey)) <= radius:
+                    group.append(other)
+            if len(group) < min_mobs:
+                continue
+
+            center_x = sum(int(m.get("x") or ex) for m in group) / len(group)
+            center_y = sum(int(m.get("y") or ey) for m in group) / len(group)
+            centrality = max(abs(ex - center_x), abs(ey - center_y))
+            score = (len(group) * 10.0) - (distance * distance_weight) - centrality
+            enriched = entity.copy()
+            enriched["cluster_count"] = len(group)
+            enriched["cluster_radius"] = radius
+            enriched["cluster_center_x"] = round(center_x, 1)
+            enriched["cluster_center_y"] = round(center_y, 1)
+            candidate_key = (score, len(group), -distance, enriched)
+            if best is None or candidate_key[:3] > best[:3]:
+                best = candidate_key
+
+        if not best:
+            return None
+        return best[3]
 
     def _execute_route_point(self, point: dict, include_scatter: bool = True) -> bool:
         if not self._focus_game_window():
@@ -625,7 +861,7 @@ class BotEngine:
         time.sleep(landing_wait)
         return True
 
-    def stop(self):
+    def stop(self, reason: str = ""):
         """Detiene el bot completo."""
         self.stop_route()
         self.running = False
@@ -633,7 +869,8 @@ class BotEngine:
         self.auto_pick_enabled = False
         if self.vision:
             self.vision.stop()
-        self.log("🛑 Bot detenido")
+        suffix = f" ({reason})" if reason else ""
+        self.log(f"🛑 Bot detenido{suffix}")
 
     def toggle_vision(self, enabled: bool):
         """Activa o desactiva el motor de visión."""
@@ -797,6 +1034,264 @@ class BotEngine:
             self.log("Puntero fuera de la ventana del juego; no hago click.", "WARNING")
         return False
 
+    def _current_hero_xy(self) -> tuple[int | None, int | None]:
+        with self._lock:
+            x = self.stats.get("coclassic_hero_x")
+            y = self.stats.get("coclassic_hero_y")
+        if x is None or y is None:
+            return None, None
+        return int(x), int(y)
+
+    def _target_screen_point(self, target: dict, for_jump: bool = False) -> tuple[int, int] | None:
+        hero_x, hero_y = self._current_hero_xy()
+        target_x = target.get("x")
+        target_y = target.get("y")
+        if hero_x is None or hero_y is None or target_x is None or target_y is None:
+            return None
+
+        dx = int(target_x) - int(hero_x)
+        dy = int(target_y) - int(hero_y)
+        if for_jump and getattr(config, "SCATTER_JUMP_LONG_AIM", True):
+            dx, dy = self._jump_click_delta(dx, dy)
+        radius = None
+        if for_jump:
+            base_radius = float(getattr(config, "SCATTER_AIM_MAX_SCREEN_RADIUS", 360) or 360)
+            radius = base_radius + max(0.0, self._scatter_jump_radius_boost)
+        return self._delta_screen_point(dx, dy, radius)
+
+    def _jump_click_delta(self, dx: int, dy: int) -> tuple[int, int]:
+        step = max(abs(dx), abs(dy))
+        if step <= 0:
+            return dx, dy
+
+        target_tiles = max(1, int(getattr(config, "SCATTER_JUMP_TARGET_TILES", 18) or 18))
+        min_tiles = max(1, int(getattr(config, "SCATTER_JUMP_MIN_TARGET_TILES", 14) or 14))
+        desired = target_tiles
+        if step >= min_tiles and step <= target_tiles:
+            desired = step
+        scale = desired / step
+        jx = int(round(dx * scale))
+        jy = int(round(dy * scale))
+        if jx == 0 and dx != 0:
+            jx = 1 if dx > 0 else -1
+        if jy == 0 and dy != 0:
+            jy = 1 if dy > 0 else -1
+        return jx, jy
+
+    def _delta_screen_point(self, dx: int, dy: int, max_radius: float | None = None) -> tuple[int, int] | None:
+        if not self._window_has_valid_bounds(self._game_window):
+            return None
+        half_w = float(getattr(config, "SCATTER_AIM_TILE_HALF_WIDTH", 24) or 24)
+        half_h = float(getattr(config, "SCATTER_AIM_TILE_HALF_HEIGHT", 12) or 12)
+        px = (dx - dy) * half_w
+        py = (dx + dy) * half_h
+
+        if max_radius is None:
+            max_radius = float(getattr(config, "SCATTER_AIM_MAX_SCREEN_RADIUS", 360) or 360)
+        distance = math.hypot(px, py)
+        if max_radius > 0 and distance > max_radius:
+            scale = max_radius / distance
+            px *= scale
+            py *= scale
+
+        center_x = int(self._game_window.left + self._game_window.width / 2)
+        center_y = int(self._game_window.top + self._game_window.height / 2)
+        center_x += int(getattr(config, "SCATTER_AIM_CENTER_OFFSET_X", 0) or 0)
+        center_y += int(getattr(config, "SCATTER_AIM_CENTER_OFFSET_Y", -18) or 0)
+        point = int(center_x + px), int(center_y + py)
+        return self._clamp_point_to_click_safe_area(point)
+
+    def _clamp_point_to_click_safe_area(self, point: tuple[int, int]) -> tuple[int, int]:
+        if not self._window_has_valid_bounds(self._game_window):
+            return point
+        area = getattr(config, "SCATTER_CLICK_SAFE_AREA", None)
+        if not area or len(area) != 4:
+            return point
+        left_r, top_r, right_r, bottom_r = [float(v) for v in area]
+        left = int(self._game_window.left + self._game_window.width * left_r)
+        top = int(self._game_window.top + self._game_window.height * top_r)
+        right = int(self._game_window.left + self._game_window.width * right_r)
+        bottom = int(self._game_window.top + self._game_window.height * bottom_r)
+        x = min(max(int(point[0]), left), right)
+        y = min(max(int(point[1]), top), bottom)
+        return x, y
+
+    def _aim_at_memory_target(self, for_jump: bool = False) -> dict | None:
+        if not getattr(config, "SCATTER_AIM_MEMORY_TARGET", True):
+            return None
+        target = self._memory_target_entity()
+        if not target:
+            return None
+        hero_x, hero_y = self._current_hero_xy()
+        if hero_x is not None and hero_y is not None:
+            target["_hero_x_before"] = hero_x
+            target["_hero_y_before"] = hero_y
+            if target.get("x") is not None and target.get("y") is not None:
+                target["_dx_before"] = int(target["x"]) - hero_x
+                target["_dy_before"] = int(target["y"]) - hero_y
+        point = self._target_screen_point(target, for_jump=for_jump)
+        if not point:
+            return None
+        pyautogui.moveTo(point[0], point[1])
+        return target
+
+    def _adjust_jump_radius_after_result(self, moved_tiles: int):
+        min_move = int(getattr(config, "SCATTER_JUMP_MIN_MOVE_TILES", 6) or 6)
+        step = float(getattr(config, "SCATTER_JUMP_RADIUS_BOOST_STEP", 24) or 24)
+        max_boost = float(getattr(config, "SCATTER_JUMP_RADIUS_BOOST_MAX", 120) or 120)
+        if moved_tiles < min_move:
+            self._scatter_jump_radius_boost = min(max_boost, self._scatter_jump_radius_boost + step)
+            return
+        self._scatter_jump_radius_boost = max(0.0, self._scatter_jump_radius_boost - step * 0.5)
+
+    def _should_attack_in_place(self, target: dict | None) -> bool:
+        if not target:
+            return False
+        burst = max(0, int(getattr(config, "SCATTER_ATTACK_IN_PLACE_BURST", 3) or 3))
+        if burst > 0 and self._scatter_in_place_count >= burst:
+            return False
+        distance = target.get("distance")
+        if distance is not None:
+            close_distance = int(getattr(config, "SCATTER_ATTACK_IN_PLACE_DISTANCE", 11) or 11)
+            if int(distance) <= close_distance:
+                return True
+        cluster_count = int(target.get("cluster_count") or 0)
+        cluster_min = int(getattr(config, "SCATTER_ATTACK_IN_PLACE_CLUSTER_MIN", 3) or 3)
+        return cluster_count >= cluster_min
+
+    def _scatter_attack_cooldown_ready(self) -> bool:
+        cooldown = max(0.0, float(getattr(config, "SCATTER_ATTACK_COOLDOWN_SEC", 0.9) or 0.9))
+        if cooldown <= 0:
+            return True
+        return (time.time() - self._last_scatter_attack_click) >= cooldown
+
+    def _mark_target_blocked(self, target: dict, reason: str):
+        entity_id = target.get("entity_id")
+        if entity_id is None:
+            return
+        now = time.time()
+        avoid_sec = float(getattr(config, "SCATTER_STUCK_AVOID_TARGET_SEC", 8.0) or 8.0)
+        opposite_sec = float(getattr(config, "SCATTER_STUCK_OPPOSITE_TARGET_SEC", 4.0) or 4.0)
+        self._mob_avoid_until[int(entity_id)] = now + avoid_sec
+        dx = int(target.get("_dx_before") or 0)
+        dy = int(target.get("_dy_before") or 0)
+        if dx or dy:
+            self._prefer_opposite_vector = (-dx, -dy, now + opposite_sec)
+        if now - self._last_jump_validate_log > 2:
+            name = target.get("name") or entity_id
+            self.log(f"Objetivo bloqueado ({reason}): {name}; probando otro rumbo.", "WARNING")
+            self._last_jump_validate_log = now
+
+    def _ctrl_left_click_at(self, point: tuple[int, int]) -> bool:
+        pyautogui.moveTo(point[0], point[1])
+        if not self._mouse_inside_game_window():
+            return False
+        try:
+            pyautogui.keyDown("ctrl")
+            pyautogui.click(button="left")
+        finally:
+            pyautogui.keyUp("ctrl")
+        return True
+
+    def _escape_from_blocked_target(self, blocked_target: dict, before_x: int | None, before_y: int | None) -> bool:
+        if not getattr(config, "SCATTER_STUCK_ESCAPE_ENABLED", True):
+            return False
+        if not memory_state or before_x is None or before_y is None:
+            return False
+
+        dx = int(blocked_target.get("_dx_before") or 0)
+        dy = int(blocked_target.get("_dy_before") or 0)
+        if dx == 0 and dy == 0:
+            return False
+
+        tiles = max(1, int(getattr(config, "SCATTER_STUCK_ESCAPE_TILES", 8) or 8))
+        step = max(abs(dx), abs(dy))
+        escape_dx = int(round((-dx / step) * tiles)) if step else 0
+        escape_dy = int(round((-dy / step) * tiles)) if step else 0
+        if escape_dx == 0 and escape_dy == 0:
+            return False
+
+        radius = float(getattr(config, "SCATTER_STUCK_ESCAPE_MAX_SCREEN_RADIUS", 240) or 240)
+        point = self._delta_screen_point(escape_dx, escape_dy, radius)
+        if not point:
+            return False
+
+        name = blocked_target.get("name") or blocked_target.get("entity_id") or "mob"
+        if not self._ctrl_left_click_at(point):
+            return False
+
+        delay = float(getattr(config, "SCATTER_STUCK_ESCAPE_VALIDATE_DELAY", 0.45) or 0.45)
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            snapshot = memory_state.read_snapshot()
+        except Exception:
+            return False
+
+        after_x = snapshot.coclassic_hero_x
+        after_y = snapshot.coclassic_hero_y
+        moved = after_x is not None and after_y is not None and (after_x != before_x or after_y != before_y)
+        if moved:
+            self.log(f"Escape de bloqueo OK desde {name}: {before_x},{before_y} -> {after_x},{after_y}", "INFO")
+            return True
+
+        now = time.time()
+        if now - self._last_jump_validate_log > 2:
+            self.log(f"Escape de bloqueo sin movimiento: {name}", "WARNING")
+            self._last_jump_validate_log = now
+        return False
+
+    def _validate_jump_towards_target(self, before_target: dict | None) -> bool:
+        if not before_target or not memory_state:
+            return False
+        delay = float(getattr(config, "SCATTER_JUMP_VALIDATE_DELAY", 0.7) or 0.7)
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            snapshot = memory_state.read_snapshot()
+        except Exception:
+            return False
+
+        before_distance = before_target.get("distance")
+        target_id = before_target.get("entity_id")
+        before_x = before_target.get("_hero_x_before")
+        before_y = before_target.get("_hero_y_before")
+        after_x = snapshot.coclassic_hero_x
+        after_y = snapshot.coclassic_hero_y
+        after_distance = None
+        for entity in snapshot.entities:
+            if entity.entity_id == target_id:
+                after_distance = entity.distance
+                break
+        if before_distance is None or after_distance is None:
+            return False
+
+        now = time.time()
+        moved_tiles = 0
+        if before_x is not None and before_y is not None and after_x is not None and after_y is not None:
+            moved_tiles = max(abs(int(after_x) - int(before_x)), abs(int(after_y) - int(before_y)))
+            self._adjust_jump_radius_after_result(moved_tiles)
+        same_position = (
+            before_x is not None
+            and before_y is not None
+            and after_x == before_x
+            and after_y == before_y
+        )
+        min_move = int(getattr(config, "SCATTER_JUMP_MIN_MOVE_TILES", 6) or 6)
+        if not same_position and (after_distance < before_distance or moved_tiles >= min_move):
+            if now - self._last_jump_validate_log > 4:
+                self.log(
+                    f"Salto hacia mob OK: d {before_distance} -> {after_distance}, mov {moved_tiles}",
+                    "INFO",
+                )
+                self._last_jump_validate_log = now
+            return True
+
+        reason = "misma posicion" if same_position else f"salto corto {moved_tiles} tiles; d {before_distance}->{after_distance}"
+        self._mark_target_blocked(before_target, reason)
+        self._escape_from_blocked_target(before_target, before_x, before_y)
+        return False
+
     def _perform_scatter_action(self) -> str | None:
         key = self._scatter_key()
         if key and getattr(config, "SCATTER_PRESS_KEY", False):
@@ -820,9 +1315,22 @@ class BotEngine:
         if invalid_modifiers:
             self.log(f"Modificador no valido en SCATTER_CLICK_PATTERN: {action}", "WARNING")
             return None
+
+        raw_target = self._memory_target_entity()
+        converted_in_place = False
+        if button == "left" and "ctrl" in modifiers and self._should_attack_in_place(raw_target):
+            action = "right"
+            button = "right"
+            modifiers = []
+            converted_in_place = True
+
         if button == "right" and not self._should_cast_scatter():
             return None
+        if button == "right" and not self._scatter_attack_cooldown_ready():
+            return None
 
+        is_jump_click = button == "left" and "ctrl" in modifiers
+        target_before_click = self._aim_at_memory_target(for_jump=is_jump_click)
         if not self._mouse_inside_game_window():
             return None
 
@@ -833,6 +1341,21 @@ class BotEngine:
         finally:
             for modifier in reversed(modifiers):
                 pyautogui.keyUp(modifier)
+        if button == "right":
+            self._last_scatter_attack_click = time.time()
+            if converted_in_place:
+                self._scatter_in_place_count += 1
+            else:
+                self._scatter_in_place_count = 0
+        if button == "left" and "ctrl" in modifiers:
+            self._scatter_in_place_count = 0
+            jump_ok = self._validate_jump_towards_target(target_before_click)
+            if jump_ok:
+                force_sec = float(getattr(config, "SCATTER_FORCE_ATTACK_AFTER_JUMP_SEC", 2.0) or 0)
+                if force_sec > 0:
+                    self._scatter_force_attack_until = time.time() + force_sec
+            else:
+                self._scatter_force_attack_until = 0.0
         return action
 
     # ------------------------------------------------------------------
@@ -847,11 +1370,24 @@ class BotEngine:
     def _scatter_min_enemies(self) -> int:
         return int(getattr(config, "SCATTER_MIN_ENEMIES", 0) or 0)
 
+    def _memory_enemy_count(self) -> tuple[int | None, int]:
+        with self._lock:
+            roles_read = int(self.stats.get("coclassic_roles_read") or 0)
+            nearby = int(self.stats.get("memory_nearby_entities_count") or 0)
+        if roles_read > 0:
+            return nearby, roles_read
+        return None, roles_read
+
     def _should_cast_scatter(self) -> bool:
         """Si SCATTER_MIN_ENEMIES > 0 y visión activa, exige N mobs con barra roja."""
+        if time.time() < self._scatter_force_attack_until:
+            return True
         need = self._scatter_min_enemies()
         if need <= 0:
             return True
+        memory_count, _roles_read = self._memory_enemy_count()
+        if memory_count is not None:
+            return memory_count >= need
         if not (self.vision and self.vision_enabled):
             return True
         n = len(self.vision.get_state().enemies_nearby)
@@ -869,10 +1405,11 @@ class BotEngine:
                 logged_mode = scatter_only
             try:
                 if scatter_only:
-                    self._use_scatter()
+                    action = self._use_scatter()
                 else:
                     self._use_next_skill()
-                delay = config.SKILL_INTERVAL + random.uniform(
+                    action = "skill"
+                delay = self._action_interval(action) + random.uniform(
                     config.RANDOM_DELAY_MIN, config.RANDOM_DELAY_MAX
                 )
                 time.sleep(delay)
@@ -884,18 +1421,28 @@ class BotEngine:
         else:
             self.log("⏸ Auto Skill detenido", "INFO")
 
+    def _action_interval(self, action: str | None) -> float:
+        if action == "ctrl+left":
+            return max(0.01, float(getattr(config, "SCATTER_AFTER_JUMP_INTERVAL", 0.12) or 0.12))
+        if action == "right":
+            return max(0.01, float(getattr(config, "SCATTER_AFTER_ATTACK_INTERVAL", 0.25) or 0.25))
+        if action is None:
+            return max(0.01, float(getattr(config, "SCATTER_AFTER_SKIP_INTERVAL", 0.08) or 0.08))
+        return max(0.01, float(getattr(config, "SKILL_INTERVAL", 1.0) or 1.0))
+
     def _use_scatter(self):
         if not self._focus_game_window():
-            return
-        button = self._perform_scatter_action()
-        if button != "right":
-            return
+            return None
+        action = self._perform_scatter_action()
+        if action != "right":
+            return action
         with self._lock:
             self.stats["skills_used"] += 1
             count = self.stats["skills_used"]
         if count % 10 == 0:
             self.log(f"🏹 Scatter lanzado (×{count})")
         self._emit_stats()
+        return action
 
     def _use_next_skill(self):
         """Usa la siguiente habilidad en rotación."""
@@ -1009,7 +1556,7 @@ class BotEngine:
                 if config.MAX_SESSION_MINUTES > 0:
                     if total_seconds >= config.MAX_SESSION_MINUTES * 60:
                         self.log("⏰ Tiempo máximo de sesión alcanzado. Deteniendo...", "WARNING")
-                        self.stop()
+                        self.stop("tiempo maximo de sesion")
                         break
 
                 self._emit_stats()
@@ -1043,11 +1590,15 @@ class BotEngine:
         keyboard.press_and_release(potion_key)
 
     def _on_vision_state(self, state):
+        memory_count, _roles_read = self._memory_enemy_count()
         with self._lock:
             self.stats["hp_percent"] = state.hp_percent
             self.stats["mp_percent"] = state.mp_percent
             self.stats["items_detected"] = len(state.items_on_ground) if self.auto_pick_enabled else 0
-            self.stats["enemies_detected"] = len(state.enemies_nearby)
+            if memory_count is None:
+                self.stats["enemies_detected"] = len(state.enemies_nearby)
+            else:
+                self.stats["enemies_detected"] = memory_count
         self._emit_stats()
 
     def get_stats(self) -> dict:

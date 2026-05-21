@@ -31,6 +31,7 @@ _NS = "/"
 _hotkeys_registered = False
 _mouse_listener = None
 _last_mouse_toggle = 0.0
+_last_bot_toggle = 0.0
 
 
 def _on_log(msg: str, level: str = "INFO"):
@@ -74,6 +75,15 @@ def _current_state() -> dict:
         "skill_interval": config.SKILL_INTERVAL,
         "pick_interval": config.PICK_INTERVAL,
         "scatter_min_enemies": getattr(config, "SCATTER_MIN_ENEMIES", 0),
+        "scatter_after_jump_interval": getattr(config, "SCATTER_AFTER_JUMP_INTERVAL", 0.12),
+        "scatter_after_attack_interval": getattr(config, "SCATTER_AFTER_ATTACK_INTERVAL", 0.25),
+        "scatter_jump_validate_delay": getattr(config, "SCATTER_JUMP_VALIDATE_DELAY", 0.25),
+        "scatter_force_attack_after_jump_sec": getattr(config, "SCATTER_FORCE_ATTACK_AFTER_JUMP_SEC", 2.0),
+        "scatter_jump_target_tiles": getattr(config, "SCATTER_JUMP_TARGET_TILES", 18),
+        "scatter_jump_min_move_tiles": getattr(config, "SCATTER_JUMP_MIN_MOVE_TILES", 6),
+        "scatter_aim_max_screen_radius": getattr(config, "SCATTER_AIM_MAX_SCREEN_RADIUS", 360),
+        "scatter_attack_cooldown_sec": getattr(config, "SCATTER_ATTACK_COOLDOWN_SEC", 0.9),
+        "scatter_attack_in_place_burst": getattr(config, "SCATTER_ATTACK_IN_PLACE_BURST", 3),
         "archer_scatter_only": getattr(config, "ARCHER_SCATTER_ONLY", False),
         "mouse_toggle_bot_button": getattr(config, "MOUSE_TOGGLE_BOT_BUTTON", ""),
         "memory_arrows_address_hex": getattr(config, "MEMORY_ARROWS_ADDRESS_HEX", ""),
@@ -93,7 +103,18 @@ def _broadcast_state(extra: dict | None = None):
     socketio.emit("state", state, namespace=_NS)
 
 
-def _set_bot_running(running: bool):
+def _set_bot_running(running: bool, source: str = "ui"):
+    global _last_bot_toggle
+    now = time.time()
+    if not running and engine.running and now - getattr(engine, "_last_start_time", 0.0) < 1.5:
+        _on_log(f"Ignoro apagado muy rapido desde {source} (debounce de arranque)", "WARNING")
+        _broadcast_state()
+        return
+    if now - _last_bot_toggle < 0.35:
+        _on_log(f"Ignoro toggle duplicado desde {source}", "WARNING")
+        _broadcast_state()
+        return
+    _last_bot_toggle = now
     if running:
         engine.start()
         if not engine.auto_skill_enabled and not engine.auto_pick_enabled:
@@ -102,7 +123,7 @@ def _set_bot_running(running: bool):
                 "WARNING",
             )
     else:
-        engine.stop()
+        engine.stop(source)
         engine.auto_skill_enabled = False
         engine.auto_pick_enabled = False
     _broadcast_state()
@@ -180,7 +201,7 @@ def _register_mouse_toggle():
         if now - _last_mouse_toggle < 0.35:
             return
         _last_mouse_toggle = now
-        _set_bot_running(not engine.running)
+        _set_bot_running(not engine.running, f"mouse {button_name}")
 
     try:
         _mouse_listener = MouseListener(on_click=on_click)
@@ -199,7 +220,7 @@ def _register_hotkeys():
         return
 
     try:
-        keyboard.add_hotkey(config.HOTKEY_TOGGLE_BOT, lambda: _set_bot_running(not engine.running))
+        keyboard.add_hotkey(config.HOTKEY_TOGGLE_BOT, lambda: _set_bot_running(not engine.running, f"hotkey {config.HOTKEY_TOGGLE_BOT}"))
         keyboard.add_hotkey(
             config.HOTKEY_TOGGLE_SKILL,
             lambda: _set_auto_skill(not engine.auto_skill_enabled),
@@ -208,7 +229,7 @@ def _register_hotkeys():
             config.HOTKEY_TOGGLE_PICK,
             lambda: _set_auto_pick(not engine.auto_pick_enabled),
         )
-        keyboard.add_hotkey(config.HOTKEY_EMERGENCY_OFF, lambda: _set_bot_running(False))
+        keyboard.add_hotkey(config.HOTKEY_EMERGENCY_OFF, lambda: engine.stop(f"hotkey {config.HOTKEY_EMERGENCY_OFF}"))
         keyboard.add_hotkey(
             getattr(config, "HOTKEY_RECORD_BOUNCE_ROUTE", "num 1"),
             _record_bounce_route,
@@ -383,7 +404,7 @@ def handle_route_library_delete(data):
 
 @socketio.on("toggle_bot")
 def handle_toggle_bot(data):
-    _set_bot_running(bool(data.get("running")))
+    _set_bot_running(bool(data.get("running")), "interfaz")
 
 
 @socketio.on("toggle_archer_scatter")
@@ -443,12 +464,27 @@ def handle_update_config(data):
         config.SKILL_INTERVAL = max(0.1, float(data.get("skill_interval", config.SKILL_INTERVAL)))
         config.PICK_INTERVAL = max(0.1, float(data.get("pick_interval", config.PICK_INTERVAL)))
         config.SCATTER_MIN_ENEMIES = max(0, int(float(data.get("scatter_min_enemies", config.SCATTER_MIN_ENEMIES))))
+        config.SCATTER_AFTER_JUMP_INTERVAL = max(0.01, float(data.get("scatter_after_jump_interval", config.SCATTER_AFTER_JUMP_INTERVAL)))
+        config.SCATTER_AFTER_ATTACK_INTERVAL = max(0.01, float(data.get("scatter_after_attack_interval", config.SCATTER_AFTER_ATTACK_INTERVAL)))
+        config.SCATTER_JUMP_VALIDATE_DELAY = max(0.0, float(data.get("scatter_jump_validate_delay", config.SCATTER_JUMP_VALIDATE_DELAY)))
+        config.SCATTER_FORCE_ATTACK_AFTER_JUMP_SEC = max(0.0, float(data.get("scatter_force_attack_after_jump_sec", config.SCATTER_FORCE_ATTACK_AFTER_JUMP_SEC)))
+        config.SCATTER_JUMP_TARGET_TILES = max(1, int(float(data.get("scatter_jump_target_tiles", config.SCATTER_JUMP_TARGET_TILES))))
+        config.SCATTER_JUMP_MIN_MOVE_TILES = max(1, int(float(data.get("scatter_jump_min_move_tiles", config.SCATTER_JUMP_MIN_MOVE_TILES))))
+        config.SCATTER_AIM_MAX_SCREEN_RADIUS = max(80, float(data.get("scatter_aim_max_screen_radius", config.SCATTER_AIM_MAX_SCREEN_RADIUS)))
+        config.SCATTER_ATTACK_COOLDOWN_SEC = max(0.0, float(data.get("scatter_attack_cooldown_sec", config.SCATTER_ATTACK_COOLDOWN_SEC)))
+        config.SCATTER_ATTACK_IN_PLACE_BURST = max(0, int(float(data.get("scatter_attack_in_place_burst", config.SCATTER_ATTACK_IN_PLACE_BURST))))
         if engine.running and config.SCATTER_MIN_ENEMIES > 0 and not engine.vision_enabled:
             engine.toggle_vision(True)
         emit(
             "log",
             {
-                "msg": f"Config actualizada: Skill {config.SKILL_INTERVAL}s | Pick {config.PICK_INTERVAL}s | Mobs {config.SCATTER_MIN_ENEMIES}",
+                "msg": (
+                    f"Config actualizada: Skill {config.SKILL_INTERVAL}s | "
+                    f"Salto {config.SCATTER_AFTER_JUMP_INTERVAL}s | "
+                    f"Ataque {config.SCATTER_AFTER_ATTACK_INTERVAL}s | "
+                    f"Mobs {config.SCATTER_MIN_ENEMIES} | "
+                    f"Jump {config.SCATTER_JUMP_TARGET_TILES} tiles"
+                ),
                 "level": "INFO",
             },
             broadcast=True,

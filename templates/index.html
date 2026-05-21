@@ -372,6 +372,51 @@
               <input type="number" id="scatter-min-enemies" value="5" min="0" max="20" step="1" onchange="updateConfig()" />
               <span>mobs</span>
             </div>
+            <div class="interval-row">
+              <label>Espera tras salto</label>
+              <input type="number" id="scatter-after-jump" value="0.12" min="0.01" max="3" step="0.01" onchange="updateConfig()" />
+              <span>seg</span>
+            </div>
+            <div class="interval-row">
+              <label>Espera tras ataque</label>
+              <input type="number" id="scatter-after-attack" value="0.25" min="0.01" max="3" step="0.01" onchange="updateConfig()" />
+              <span>seg</span>
+            </div>
+            <div class="interval-row">
+              <label>Validar salto</label>
+              <input type="number" id="scatter-jump-validate" value="0.25" min="0" max="2" step="0.05" onchange="updateConfig()" />
+              <span>seg</span>
+            </div>
+            <div class="interval-row">
+              <label>Atacar tras salto</label>
+              <input type="number" id="scatter-force-attack" value="2.0" min="0" max="5" step="0.1" onchange="updateConfig()" />
+              <span>seg</span>
+            </div>
+            <div class="interval-row">
+              <label>Cooldown Scatter</label>
+              <input type="number" id="scatter-attack-cooldown" value="0.9" min="0" max="3" step="0.05" onchange="updateConfig()" />
+              <span>seg</span>
+            </div>
+            <div class="interval-row">
+              <label>Ataques quieto</label>
+              <input type="number" id="scatter-in-place-burst" value="3" min="0" max="10" step="1" onchange="updateConfig()" />
+              <span>x</span>
+            </div>
+            <div class="interval-row">
+              <label>Salto objetivo</label>
+              <input type="number" id="scatter-jump-target-tiles" value="18" min="6" max="22" step="1" onchange="updateConfig()" />
+              <span>tiles</span>
+            </div>
+            <div class="interval-row">
+              <label>Salto minimo OK</label>
+              <input type="number" id="scatter-jump-min-move" value="6" min="1" max="18" step="1" onchange="updateConfig()" />
+              <span>tiles</span>
+            </div>
+            <div class="interval-row">
+              <label>Radio click mapa</label>
+              <input type="number" id="scatter-aim-radius" value="360" min="120" max="600" step="10" onchange="updateConfig()" />
+              <span>px</span>
+            </div>
           </div>
 
         <div style="margin-top:16px;">
@@ -562,6 +607,69 @@
         </div>
         <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-map-err"></div>
         <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Player ID (memoria)</span>
+          <span class="color-yellow" id="stat-player-id">—</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Player ID addr</span>
+          <span class="color-accent" id="stat-player-id-addr">—</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Player base</span>
+          <span class="color-accent" id="stat-player-base">—</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
+          <span>Pointer source</span>
+          <span class="color-accent" id="stat-player-pointer-source" style="text-align:right;word-break:break-all;">—</span>
+        </div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
+          <span>CRoleMgr</span>
+          <span class="color-accent" id="stat-coclassic-role-mgr" style="text-align:right;word-break:break-all;">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
+          <span>CHero</span>
+          <span class="color-accent" id="stat-coclassic-hero" style="text-align:right;word-break:break-all;">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>CHero nombre</span>
+          <span class="color-green" id="stat-coclassic-hero-name">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>CHero ID</span>
+          <span class="color-yellow" id="stat-coclassic-hero-id">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>CHero X/Y</span>
+          <span class="color-accent" id="stat-coclassic-hero-xy">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Role deque size</span>
+          <span class="color-accent" id="stat-coclassic-deque-size">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Roles leidos</span>
+          <span class="color-accent" id="stat-coclassic-roles-read">0</span>
+        </div>
+        <pre id="stat-coclassic-roles-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--muted);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
+        <pre id="stat-coclassic-deque-debug" style="margin-top:6px;max-height:90px;overflow:auto;font-size:10px;line-height:1.35;color:var(--orange);background:#050816;border:1px solid var(--border);border-radius:6px;padding:6px;"></pre>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Mobs cerca memoria</span>
+          <span class="color-accent" id="stat-memory-entities">0</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:12px;">
+          <span>Mob objetivo</span>
+          <span class="color-green" id="stat-memory-target" style="text-align:right;word-break:break-all;">-</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Mobs total memoria</span>
+          <span class="color-accent" id="stat-memory-entities-total">0</span>
+        </div>
+        <div style="margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+          <span>Drops por memoria</span>
+          <span class="color-green" id="stat-memory-drops">0</span>
+        </div>
+        <div style="margin-top:4px;font-size:10px;color:var(--orange);min-height:14px;" id="stat-memory-state-err"></div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
           <span>🎒 Inventario (último slot)</span>
           <span class="color-yellow" id="stat-inventory">—</span>
         </div>
@@ -604,8 +712,13 @@
     if (value === undefined || value === '') return;
     ['skill-interval', 'skill-interval-auto'].forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.value = value;
+      if (el && document.activeElement !== el) el.value = value;
     });
+  }
+
+  function setInputValueIfIdle(id, value) {
+    const el = document.getElementById(id);
+    if (el && document.activeElement !== el) el.value = value;
   }
 
   function getSkillInterval() {
@@ -800,8 +913,34 @@
         syncSkillIntervalInputs(data.skill_interval);
       }
       if (data.scatter_min_enemies !== undefined) {
-        const el = document.getElementById('scatter-min-enemies');
-        if (el) el.value = data.scatter_min_enemies;
+        setInputValueIfIdle('scatter-min-enemies', data.scatter_min_enemies);
+      }
+      if (data.scatter_after_jump_interval !== undefined) {
+        setInputValueIfIdle('scatter-after-jump', data.scatter_after_jump_interval);
+      }
+      if (data.scatter_after_attack_interval !== undefined) {
+        setInputValueIfIdle('scatter-after-attack', data.scatter_after_attack_interval);
+      }
+      if (data.scatter_jump_validate_delay !== undefined) {
+        setInputValueIfIdle('scatter-jump-validate', data.scatter_jump_validate_delay);
+      }
+      if (data.scatter_force_attack_after_jump_sec !== undefined) {
+        setInputValueIfIdle('scatter-force-attack', data.scatter_force_attack_after_jump_sec);
+      }
+      if (data.scatter_attack_cooldown_sec !== undefined) {
+        setInputValueIfIdle('scatter-attack-cooldown', data.scatter_attack_cooldown_sec);
+      }
+      if (data.scatter_attack_in_place_burst !== undefined) {
+        setInputValueIfIdle('scatter-in-place-burst', data.scatter_attack_in_place_burst);
+      }
+      if (data.scatter_jump_target_tiles !== undefined) {
+        setInputValueIfIdle('scatter-jump-target-tiles', data.scatter_jump_target_tiles);
+      }
+      if (data.scatter_jump_min_move_tiles !== undefined) {
+        setInputValueIfIdle('scatter-jump-min-move', data.scatter_jump_min_move_tiles);
+      }
+      if (data.scatter_aim_max_screen_radius !== undefined) {
+        setInputValueIfIdle('scatter-aim-radius', data.scatter_aim_max_screen_radius);
       }
       if (data.archer_scatter_only === false && botMode === 'assisted') {
         socket.emit('toggle_archer_scatter', { enabled: true });
@@ -892,9 +1031,27 @@
   }
   function updateConfig() {
     const scatterEl = document.getElementById('scatter-min-enemies');
+    const afterJumpEl = document.getElementById('scatter-after-jump');
+    const afterAttackEl = document.getElementById('scatter-after-attack');
+    const validateEl = document.getElementById('scatter-jump-validate');
+    const forceAttackEl = document.getElementById('scatter-force-attack');
+    const attackCooldownEl = document.getElementById('scatter-attack-cooldown');
+    const inPlaceBurstEl = document.getElementById('scatter-in-place-burst');
+    const jumpTargetEl = document.getElementById('scatter-jump-target-tiles');
+    const jumpMinMoveEl = document.getElementById('scatter-jump-min-move');
+    const aimRadiusEl = document.getElementById('scatter-aim-radius');
     socket.emit('update_config', {
       skill_interval: getSkillInterval(),
       scatter_min_enemies: scatterEl ? parseInt(scatterEl.value || '0', 10) : 0,
+      scatter_after_jump_interval: afterJumpEl ? parseFloat(afterJumpEl.value || '0.12') : 0.12,
+      scatter_after_attack_interval: afterAttackEl ? parseFloat(afterAttackEl.value || '0.25') : 0.25,
+      scatter_jump_validate_delay: validateEl ? parseFloat(validateEl.value || '0.25') : 0.25,
+      scatter_force_attack_after_jump_sec: forceAttackEl ? parseFloat(forceAttackEl.value || '2') : 2,
+      scatter_attack_cooldown_sec: attackCooldownEl ? parseFloat(attackCooldownEl.value || '0.9') : 0.9,
+      scatter_attack_in_place_burst: inPlaceBurstEl ? parseInt(inPlaceBurstEl.value || '3', 10) : 3,
+      scatter_jump_target_tiles: jumpTargetEl ? parseInt(jumpTargetEl.value || '18', 10) : 18,
+      scatter_jump_min_move_tiles: jumpMinMoveEl ? parseInt(jumpMinMoveEl.value || '6', 10) : 6,
+      scatter_aim_max_screen_radius: aimRadiusEl ? parseFloat(aimRadiusEl.value || '360') : 360,
     });
   }
 
@@ -968,6 +1125,102 @@
     }
     if (me && data.map_coords_err !== undefined) {
       me.textContent = data.map_coords_err || '';
+    }
+    const playerId = document.getElementById('stat-player-id');
+    const playerIdAddr = document.getElementById('stat-player-id-addr');
+    const playerBase = document.getElementById('stat-player-base');
+    const playerPointerSource = document.getElementById('stat-player-pointer-source');
+    const coRoleMgr = document.getElementById('stat-coclassic-role-mgr');
+    const coHero = document.getElementById('stat-coclassic-hero');
+    const coHeroName = document.getElementById('stat-coclassic-hero-name');
+    const coHeroId = document.getElementById('stat-coclassic-hero-id');
+    const coHeroXy = document.getElementById('stat-coclassic-hero-xy');
+    const coDequeSize = document.getElementById('stat-coclassic-deque-size');
+    const coRolesRead = document.getElementById('stat-coclassic-roles-read');
+    const coRolesDebug = document.getElementById('stat-coclassic-roles-debug');
+    const coDequeDebug = document.getElementById('stat-coclassic-deque-debug');
+    const memEntities = document.getElementById('stat-memory-entities');
+    const memTarget = document.getElementById('stat-memory-target');
+    const memEntitiesTotal = document.getElementById('stat-memory-entities-total');
+    const memDrops = document.getElementById('stat-memory-drops');
+    const memErr = document.getElementById('stat-memory-state-err');
+    if (playerId && data.player_id_memory !== undefined) {
+      playerId.textContent =
+        data.player_id_memory === null || data.player_id_memory === undefined ? '—' : String(data.player_id_memory);
+    }
+    if (playerIdAddr && data.player_id_address_memory !== undefined) {
+      playerIdAddr.textContent = data.player_id_address_memory || '—';
+    }
+    if (playerBase && data.player_base_memory !== undefined) {
+      playerBase.textContent = data.player_base_memory || '—';
+    }
+    if (playerPointerSource && data.player_pointer_source !== undefined) {
+      playerPointerSource.textContent = data.player_pointer_source || '—';
+    }
+    if (coRoleMgr && data.coclassic_role_mgr !== undefined) {
+      coRoleMgr.textContent = data.coclassic_role_mgr || '-';
+    }
+    if (coHero && data.coclassic_hero !== undefined) {
+      coHero.textContent = data.coclassic_hero || '-';
+    }
+    if (coHeroName && data.coclassic_hero_name !== undefined) {
+      coHeroName.textContent = data.coclassic_hero_name || '-';
+    }
+    if (coHeroId && data.coclassic_hero_id !== undefined) {
+      coHeroId.textContent =
+        data.coclassic_hero_id === null || data.coclassic_hero_id === undefined ? '-' : String(data.coclassic_hero_id);
+    }
+    if (coHeroXy && (data.coclassic_hero_x !== undefined || data.coclassic_hero_y !== undefined)) {
+      const hx = data.coclassic_hero_x;
+      const hy = data.coclassic_hero_y;
+      coHeroXy.textContent = (hx === null || hx === undefined || hy === null || hy === undefined) ? '-' : `${hx}, ${hy}`;
+    }
+    if (coDequeSize && data.coclassic_deque_size !== undefined) {
+      coDequeSize.textContent =
+        data.coclassic_deque_size === null || data.coclassic_deque_size === undefined ? '-' : String(data.coclassic_deque_size);
+    }
+    if (coRolesRead && data.coclassic_roles_read !== undefined) {
+      coRolesRead.textContent = String(data.coclassic_roles_read || 0);
+    }
+    if (coRolesDebug && data.coclassic_roles_debug !== undefined) {
+      const rows = (data.coclassic_roles_debug || []).map((r) => {
+        const id = r.entity_id ?? '-';
+        const name = r.name || '-';
+        const x = r.x ?? '-';
+        const y = r.y ?? '-';
+        const dist = r.distance ?? '-';
+        const alive = r.alive === true ? 'alive' : (r.alive === false ? 'skip' : '?');
+        return `${id} ${name} ${x},${y} d=${dist} ${alive}`;
+      });
+      coRolesDebug.textContent = rows.join('\n');
+    }
+    if (coDequeDebug && data.coclassic_deque_debug !== undefined) {
+      coDequeDebug.textContent = (data.coclassic_deque_debug || []).join('\n');
+    }
+    if (memEntities && data.memory_entities_count !== undefined) {
+      memEntities.textContent = String(data.memory_entities_count || 0);
+    }
+    if (memTarget && data.memory_target_entity !== undefined) {
+      const t = data.memory_target_entity;
+      if (!t) {
+        memTarget.textContent = '-';
+      } else {
+        const name = t.name || t.entity_id || '-';
+        const x = t.x ?? '-';
+        const y = t.y ?? '-';
+        const d = t.distance ?? '-';
+        const cluster = t.cluster_count ? ` grupo=${t.cluster_count}` : '';
+        memTarget.textContent = `${name} ${x},${y} d=${d}${cluster}`;
+      }
+    }
+    if (memEntitiesTotal && data.memory_entities_total_count !== undefined) {
+      memEntitiesTotal.textContent = String(data.memory_entities_total_count || 0);
+    }
+    if (memDrops && data.memory_drops_count !== undefined) {
+      memDrops.textContent = String(data.memory_drops_count || 0);
+    }
+    if (memErr && data.memory_state_err !== undefined) {
+      memErr.textContent = data.memory_state_err || '';
     }
     const inv = document.getElementById('stat-inventory');
     const invD = document.getElementById('stat-inventory-detail');

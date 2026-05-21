@@ -11,6 +11,39 @@ SCATTER_PRESS_KEY = False  # True si queres que el bot seleccione la skill antes
 SCATTER_CLICK_PATTERN = ("ctrl+left", "right")  # saltar, castear, repetir
 SCATTER_CLICK_DELAY = 0.08
 SCATTER_REQUIRE_MOUSE_INSIDE_GAME = True
+SCATTER_AIM_MEMORY_TARGET = True
+SCATTER_AIM_TILE_HALF_WIDTH = 24
+SCATTER_AIM_TILE_HALF_HEIGHT = 12
+SCATTER_AIM_CENTER_OFFSET_X = 0
+SCATTER_AIM_CENTER_OFFSET_Y = -18
+SCATTER_AIM_MAX_SCREEN_RADIUS = 360
+SCATTER_CLICK_SAFE_AREA = (0.02, 0.08, 0.88, 0.82)  # left, top, right, bottom dentro de la ventana
+SCATTER_JUMP_LONG_AIM = True
+SCATTER_JUMP_TARGET_TILES = 18
+SCATTER_JUMP_MIN_TARGET_TILES = 14
+SCATTER_JUMP_MIN_MOVE_TILES = 6
+SCATTER_JUMP_RADIUS_BOOST_STEP = 24
+SCATTER_JUMP_RADIUS_BOOST_MAX = 120
+SCATTER_JUMP_VALIDATE_DELAY = 0.25
+SCATTER_AFTER_JUMP_INTERVAL = 0.12
+SCATTER_AFTER_ATTACK_INTERVAL = 0.25
+SCATTER_AFTER_SKIP_INTERVAL = 0.08
+SCATTER_FORCE_ATTACK_AFTER_JUMP_SEC = 2.0
+SCATTER_STUCK_AVOID_TARGET_SEC = 8.0
+SCATTER_STUCK_OPPOSITE_TARGET_SEC = 4.0
+SCATTER_STUCK_ESCAPE_ENABLED = True
+SCATTER_STUCK_ESCAPE_TILES = 8
+SCATTER_STUCK_ESCAPE_MAX_SCREEN_RADIUS = 240
+SCATTER_STUCK_ESCAPE_VALIDATE_DELAY = 0.45
+SCATTER_TARGET_MODE = "hybrid"  # nearest | hybrid
+SCATTER_CLUSTER_MIN_MOBS = 3
+SCATTER_CLUSTER_RADIUS_TILES = 7
+SCATTER_CLUSTER_MAX_DISTANCE = 22
+SCATTER_CLUSTER_DISTANCE_WEIGHT = 0.35
+SCATTER_ATTACK_IN_PLACE_DISTANCE = 11
+SCATTER_ATTACK_IN_PLACE_CLUSTER_MIN = 3
+SCATTER_ATTACK_IN_PLACE_BURST = 3
+SCATTER_ATTACK_COOLDOWN_SEC = 0.9
 
 # Solo lanzar Scatter si hay al menos N enemigos detectados (barras rojas).
 # 0 = siempre lanzar (recomendado si no usás visión o el PS tiene UI distinta).
@@ -83,6 +116,80 @@ MEMORY_LAT_ADDRESS_HEX = ""
 MEMORY_LNG_ADDRESS_HEX = ""
 MEMORY_COORDS_VALUE_BYTES = 2
 
+# --- Lectura externa avanzada (sin DLL / sin inyeccion) ---
+# Estos campos son opcionales. Se llenan cuando encontremos punteros/listas con CE
+# o con datos del proxy. Los defaults copian offsets observados en PsPsEye, pero
+# las direcciones base/listas dependen de tu cliente privado.
+MEMORY_POINTER_SIZE = 4
+
+# Player: usar una direccion directa al objeto player, o una direccion que contiene
+# el puntero al player. Si ambas estan vacias, solo se leen Lat/Lng manuales arriba.
+MEMORY_PLAYER_BASE_ADDRESS_HEX = "061025E0"
+MEMORY_PLAYER_PTR_ADDRESS_HEX = ""
+MEMORY_PLAYER_POINTER_CHAINS = [
+    {"module": "ImConquer.exe", "base_offset": 0x004DF588, "offsets": [0x90]},
+    {"module": "ImConquer.exe", "base_offset": 0x005B0594, "offsets": [0x90]},
+    {"module": "ImConquer.exe", "base_offset": 0x00648ECC, "offsets": [0x90]},
+    {"module": "ImConquer.exe", "base_offset": 0x004DF590, "offsets": [0xA0]},
+    {"module": "ImConquer.exe", "base_offset": 0x004DF588, "offsets": [0x10, 0xA0]},
+    {"module": "ImConquer.exe", "base_offset": 0x005B0594, "offsets": [0x10, 0xA0]},
+    {"module": "ImConquer.exe", "base_offset": 0x00648ECC, "offsets": [0x10, 0xA0]},
+    {"module": "ImConquer.exe", "base_offset": 0x004DF590, "offsets": [0x20, 0xA0]},
+]
+MEMORY_PLAYER_EXPECTED_ID = 117359
+MEMORY_PLAYER_ID_OFFSET = 0x0
+MEMORY_PLAYER_X_OFFSET = 0x48
+MEMORY_PLAYER_Y_OFFSET = 0x4C
+MEMORY_PLAYER_COORD_SHIFT = 0
+
+# CoClassicBot / cliente x64: offsets estructurales validados para este PS.
+# Se leen como diagnostico externo primero; si coinciden con CE podemos usarlos
+# como fuente primaria para mobs, drops e inventario.
+MEMORY_COCLASSIC_DEBUG_ENABLED = True
+MEMORY_COCLASSIC_MODULE = "ImConquer.exe"
+MEMORY_COCLASSIC_ROLE_MGR_OFFSET = 0x004DF588
+MEMORY_COCLASSIC_GAME_MAP_OFFSET = 0x004E02E0
+MEMORY_COCLASSIC_ROLE_MGR_HERO_OFFSET = 0x00
+MEMORY_COCLASSIC_ROLE_MGR_DEQUE_OFFSET = 0x70
+MEMORY_COCLASSIC_ROLE_ID_OFFSET = 0x68
+MEMORY_COCLASSIC_ROLE_NAME_OFFSET = 0x94
+MEMORY_COCLASSIC_ROLE_NAME_SIZE = 16
+MEMORY_COCLASSIC_ROLE_X_OFFSET = 0xD8
+MEMORY_COCLASSIC_ROLE_Y_OFFSET = 0xDC
+MEMORY_COCLASSIC_ROLE_STATUS_OFFSET = 0x30
+MEMORY_MOB_NEARBY_RANGE = 20
+ROUTE_WAIT_FOR_MEMORY_MOBS = True
+ROUTE_MOB_WAIT_POLL_SEC = 0.5
+
+# Entidades/mobs: lista absoluta o lista relativa al objeto player.
+# PsPsEye referencia 0x5488 desde player base, pero la estructura exacta de la
+# lista puede variar por cliente.
+MEMORY_ENTITY_LIST_ADDRESS_HEX = ""
+MEMORY_ENTITY_LIST_OFFSET_FROM_PLAYER = 0x5488
+MEMORY_ENTITY_LIST_IS_POINTERS = True
+MEMORY_ENTITY_LIST_COUNT = 0
+MEMORY_ENTITY_LIST_STRIDE = 4
+MEMORY_ENTITY_MAX_READ = 80
+MEMORY_ENTITY_ID_OFFSET = 0x190
+MEMORY_ENTITY_TYPE_OFFSET = 0x1BC
+MEMORY_ENTITY_X_OFFSET = 0x4
+MEMORY_ENTITY_Y_OFFSET = 0x8
+MEMORY_ENTITY_STATE_OFFSET = 0x70
+MEMORY_ENTITY_DEAD_STATE = 0x3A
+MEMORY_ENTITY_COORD_SHIFT = 6
+
+# Drops: PsPsEye obtiene drops hookeando recv. Sin inyeccion necesitamos encontrar
+# una lista ya materializada en memoria, o alimentar esto desde un proxy/parser.
+MEMORY_DROP_LIST_ADDRESS_HEX = ""
+MEMORY_DROP_LIST_COUNT = 0
+MEMORY_DROP_LIST_STRIDE = 32
+MEMORY_DROP_MAX_READ = 80
+MEMORY_DROP_VALUE_OFFSET = 0x4
+MEMORY_DROP_ID_OFFSET = 0x8
+MEMORY_DROP_X_OFFSET = 0xC
+MEMORY_DROP_Y_OFFSET = 0xE
+MEMORY_DROP_OWNER_ID_OFFSET = 0x18
+
 # Salto entre puntos de ruta (después de mover el mouse al objetivo en pantalla).
 ROUTE_LANDING_WAIT = 1.0
 ROUTE_SCATTER_BEFORE_JUMP = 1
@@ -104,7 +211,8 @@ INVENTORY_FULL_CONFIRM_CHECKS = 2
 # Al detectar lleno: detener ruta automática y avisar en log
 INVENTORY_FULL_STOP_ROUTE = True
 # Desconectar personaje: Escape (cierra inventario) + Escape (menú sesión) + clic en Disconnect
-INVENTORY_FULL_DISCONNECT = True
+INVENTORY_FULL_DISCONNECT = False
+INVENTORY_FULL_STOP_BOT = False
 INVENTORY_DISCONNECT_ESC_DELAY = 0.45
 INVENTORY_DISCONNECT_MENU_DELAY = 0.65
 # Clic respecto al centro de la ventana del juego (px). Ajustá Y si no cae en «Disconnect».
