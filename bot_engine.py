@@ -28,6 +28,11 @@ except ImportError:
     memory_state = None
 
 try:
+    import map_pathfinder
+except ImportError:
+    map_pathfinder = None
+
+try:
     from vision import VisionEngine, check_inventory_last_slot_occupied
     VISION_AVAILABLE = True
 except ImportError:
@@ -1195,6 +1200,42 @@ class BotEngine:
             radius = base_radius + max(0.0, self._scatter_jump_radius_boost)
         return self._delta_screen_point(dx, dy, radius)
 
+    def _pathfinder_target(
+        self,
+        target: dict,
+        hero_x: int | None,
+        hero_y: int | None,
+        fail_closed: bool | None = None,
+    ) -> dict | None:
+        if not bool(getattr(config, "MAP_PATHFINDER_ENABLED", True)):
+            return target
+        if not map_pathfinder or hero_x is None or hero_y is None:
+            return target
+        tx = target.get("x")
+        ty = target.get("y")
+        if tx is None or ty is None:
+            return target
+        waypoint, err = map_pathfinder.next_waypoint((int(hero_x), int(hero_y)), (int(tx), int(ty)))
+        if waypoint:
+            if waypoint != (int(tx), int(ty)):
+                self.log(f"Pathfinder: waypoint {waypoint[0]},{waypoint[1]} hacia {tx},{ty}", "INFO")
+            routed = dict(target)
+            routed["x"] = int(waypoint[0])
+            routed["y"] = int(waypoint[1])
+            routed["_pathfinder_final_x"] = int(tx)
+            routed["_pathfinder_final_y"] = int(ty)
+            return routed
+        if err:
+            now = time.time()
+            if now - self._last_jump_validate_log > 2:
+                self.log(f"Pathfinder sin ruta: {err}", "WARNING")
+                self._last_jump_validate_log = now
+        if fail_closed is None:
+            fail_closed = bool(getattr(config, "MAP_PATHFINDER_FAIL_CLOSED", True))
+        if fail_closed:
+            return None
+        return target
+
     def _calibrated_jump_screen_point(self, map_dx: int, map_dy: int, target: dict | None = None) -> tuple[int, int] | None:
         if not getattr(config, "SCATTER_JUMP_USE_CALIBRATED_POINTS", True):
             return None
@@ -1369,6 +1410,10 @@ class BotEngine:
             if target.get("x") is not None and target.get("y") is not None:
                 target["_dx_before"] = int(target["x"]) - hero_x
                 target["_dy_before"] = int(target["y"]) - hero_y
+        if for_jump and bool(getattr(config, "MAP_PATHFINDER_MOB_JUMPS", True)):
+            target = self._pathfinder_target(target, hero_x, hero_y)
+            if not target:
+                return None
         point = self._target_screen_point(target, for_jump=for_jump)
         if not point:
             return None
@@ -1425,7 +1470,11 @@ class BotEngine:
             self._last_jump_validate_log = now
 
     def _ctrl_left_click_at(self, point: tuple[int, int]) -> bool:
+        if not self.running:
+            return False
         pyautogui.moveTo(point[0], point[1])
+        if not self.running:
+            return False
         if not self._mouse_inside_game_window():
             return False
         try:
@@ -1513,6 +1562,9 @@ class BotEngine:
             "y": int(coords[1]),
             "name": self._farm_target.get("name") or "farm",
         }
+        target = self._pathfinder_target(target, hero_x, hero_y)
+        if not target:
+            return False
         point = self._target_screen_point(target, for_jump=True)
         if not point or not self._ctrl_left_click_at(point):
             return False
@@ -1631,6 +1683,8 @@ class BotEngine:
         return False
 
     def _perform_scatter_action(self) -> str | None:
+        if not self.running or not self.auto_skill_enabled:
+            return None
         key = self._scatter_key()
         if key and getattr(config, "SCATTER_PRESS_KEY", False):
             keyboard.press_and_release(key)
@@ -1638,6 +1692,8 @@ class BotEngine:
         delay = float(getattr(config, "SCATTER_CLICK_DELAY", 0.08) or 0)
         if delay > 0:
             time.sleep(delay)
+        if not self.running or not self.auto_skill_enabled:
+            return None
 
         pattern = tuple(getattr(config, "SCATTER_CLICK_PATTERN", ("right",)) or ("right",))
         action = str(pattern[self._scatter_click_index % len(pattern)]).lower().replace(" ", "")
@@ -1684,6 +1740,8 @@ class BotEngine:
                 return None
             self._aim_at_calibrated_cursor_direction()
         if not self._mouse_inside_game_window():
+            return None
+        if not self.running or not self.auto_skill_enabled:
             return None
 
         try:
@@ -1793,6 +1851,8 @@ class BotEngine:
         action = self._perform_scatter_action()
         if action != "right":
             return action
+        if not self.running or not self.auto_skill_enabled:
+            return None
         with self._lock:
             self.stats["skills_used"] += 1
             count = self.stats["skills_used"]

@@ -111,10 +111,6 @@ def _broadcast_state(extra: dict | None = None):
 def _set_bot_running(running: bool, source: str = "ui"):
     global _last_bot_toggle
     now = time.time()
-    if not running and engine.running and now - getattr(engine, "_last_start_time", 0.0) < 1.5:
-        _on_log(f"Ignoro apagado muy rapido desde {source} (debounce de arranque)", "WARNING")
-        _broadcast_state()
-        return
     if now - _last_bot_toggle < 0.35:
         _on_log(f"Ignoro toggle duplicado desde {source}", "WARNING")
         _broadcast_state()
@@ -233,7 +229,11 @@ def _register_hotkeys():
         return
 
     try:
-        keyboard.add_hotkey(config.HOTKEY_TOGGLE_BOT, lambda: _set_bot_running(not engine.running, f"hotkey {config.HOTKEY_TOGGLE_BOT}"))
+        keyboard.add_hotkey(
+            config.HOTKEY_TOGGLE_BOT,
+            lambda: _set_bot_running(not engine.running, f"hotkey {config.HOTKEY_TOGGLE_BOT}"),
+            trigger_on_release=True,
+        )
         keyboard.add_hotkey(
             config.HOTKEY_TOGGLE_SKILL,
             lambda: _set_auto_skill(not engine.auto_skill_enabled),
@@ -242,7 +242,11 @@ def _register_hotkeys():
             config.HOTKEY_TOGGLE_PICK,
             lambda: _set_auto_pick(not engine.auto_pick_enabled),
         )
-        keyboard.add_hotkey(config.HOTKEY_EMERGENCY_OFF, lambda: engine.stop(f"hotkey {config.HOTKEY_EMERGENCY_OFF}"))
+        keyboard.add_hotkey(
+            config.HOTKEY_EMERGENCY_OFF,
+            lambda: engine.stop(f"hotkey {config.HOTKEY_EMERGENCY_OFF}"),
+            trigger_on_release=True,
+        )
         keyboard.add_hotkey(
             getattr(config, "HOTKEY_RECORD_BOUNCE_ROUTE", "num 1"),
             _record_bounce_route,
